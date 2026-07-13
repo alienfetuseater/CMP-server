@@ -1,60 +1,31 @@
-const express = require('express')
+import express from 'express'
+import CMPRoutes from './routes/routes.js'
+import { errorHandler } from './middleware/error.js'
+import { dbConnection } from './middleware/dbConnection.js'
+import dotenv from 'dotenv'
+dotenv.config()
+const port = process.env.PORT || 8000
+
+dbConnection()
 
 const app = express()
-const PORT = process.env.PORT || 3000
+import cors from 'cors'
+
+app.use(
+	cors({
+		origin: 'http://localhost:5173', // Allow requests from this origin
+		methods: ['GET', 'POST', 'PUT', 'DELETE'], // Specify allowed methods
+		allowedHeaders: ['Content-Type', 'Authorization'], // Specify allowed headers
+	}),
+)
 
 app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
 
-let items = [
-	{ id: 1, name: 'Sample item', description: 'This is a demo item.' },
-]
+app.use('/api/CMPGarage', CMPRoutes)
 
-app.get('/health', (req, res) => {
-	res.json({ status: 'ok' })
-})
+app.use(errorHandler)
 
-app.get('/api/items', (req, res) => {
-	res.json(items)
-})
-
-app.post('/api/items', (req, res) => {
-	const newItem = {
-		id: Date.now(),
-		name: req.body.name,
-		description: req.body.description || '',
-	}
-
-	items.push(newItem)
-	res.status(201).json(newItem)
-})
-
-app.put('/api/items/:id', (req, res) => {
-	const itemId = Number(req.params.id)
-	const item = items.find((entry) => entry.id === itemId)
-
-	if (!item) {
-		return res.status(404).json({ error: 'Item not found' })
-	}
-
-	item.name = req.body.name || item.name
-	item.description = req.body.description || item.description
-
-	res.json(item)
-})
-
-app.delete('/api/items/:id', (req, res) => {
-	const itemId = Number(req.params.id)
-	const initialLength = items.length
-
-	items = items.filter((entry) => entry.id !== itemId)
-
-	if (items.length === initialLength) {
-		return res.status(404).json({ error: 'Item not found' })
-	}
-
-	res.status(204).send()
-})
-
-app.listen(PORT, () => {
-	console.log(`Server listening on http://localhost:${PORT}`)
+app.listen(port, (req, res) => {
+	console.log(`server running on port ${port}`)
 })

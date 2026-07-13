@@ -1,5 +1,5 @@
-const { randomUUID } = require('crypto')
-const { Customer, Vessel, Ticket, Todo } = require('../models/models.js')
+import { randomUUID } from 'crypto'
+import { Customer, Vessel, Ticket, Todo } from '../models/models.js'
 
 const sendError = (res, status, message) => {
 	res.status(status).json({ error: message })
@@ -11,7 +11,7 @@ const buildRecord = (body, defaults = {}) => ({
 	id: body.id || randomUUID(),
 })
 
-exports.getCustomerProfile = async (req, res) => {
+export const getCustomerProfile = async (req, res) => {
 	try {
 		const customerId = req.params.id || req.query.id
 		const customer = await Customer.findOne({ id: customerId })
@@ -26,7 +26,7 @@ exports.getCustomerProfile = async (req, res) => {
 	}
 }
 
-exports.getBoatProfile = async (req, res) => {
+export const getBoatProfile = async (req, res) => {
 	try {
 		const vesselId = req.params.id || req.query.id
 		const vessel = await Vessel.findOne({ id: vesselId })
@@ -41,7 +41,7 @@ exports.getBoatProfile = async (req, res) => {
 	}
 }
 
-exports.getTickets = async (req, res) => {
+export const getTickets = async (req, res) => {
 	try {
 		const tickets = await Ticket.find().sort({ createdAt: -1 })
 		res.status(200).json(tickets)
@@ -50,7 +50,7 @@ exports.getTickets = async (req, res) => {
 	}
 }
 
-exports.getToDos = async (req, res) => {
+export const getToDos = async (req, res) => {
 	try {
 		const todos = await Todo.find().sort({ dueDate: 1 })
 		res.status(200).json(todos)
@@ -59,7 +59,7 @@ exports.getToDos = async (req, res) => {
 	}
 }
 
-exports.newCustomer = async (req, res) => {
+export const newCustomer = async (req, res) => {
 	try {
 		const customer = await Customer.create(buildRecord(req.body))
 		res.status(201).json(customer)
@@ -68,7 +68,7 @@ exports.newCustomer = async (req, res) => {
 	}
 }
 
-exports.newBoat = async (req, res) => {
+export const newBoat = async (req, res) => {
 	try {
 		const vessel = await Vessel.create(buildRecord(req.body))
 		res.status(201).json(vessel)
@@ -77,7 +77,7 @@ exports.newBoat = async (req, res) => {
 	}
 }
 
-exports.newTicket = async (req, res) => {
+export const newTicket = async (req, res) => {
 	try {
 		const ticket = await Ticket.create(buildRecord(req.body))
 		res.status(201).json(ticket)
@@ -86,7 +86,7 @@ exports.newTicket = async (req, res) => {
 	}
 }
 
-exports.newToDo = async (req, res) => {
+export const newToDo = async (req, res) => {
 	try {
 		const todo = await Todo.create(buildRecord(req.body))
 		res.status(201).json(todo)
@@ -95,7 +95,7 @@ exports.newToDo = async (req, res) => {
 	}
 }
 
-exports.updateCustomer = async (req, res) => {
+export const updateCustomer = async (req, res) => {
 	try {
 		const updated = await Customer.findOneAndUpdate(
 			{ id: req.params.id },
@@ -116,7 +116,7 @@ exports.updateCustomer = async (req, res) => {
 	}
 }
 
-exports.updateBoat = async (req, res) => {
+export const updateBoat = async (req, res) => {
 	try {
 		const updated = await Vessel.findOneAndUpdate(
 			{ id: req.params.id },
@@ -137,7 +137,7 @@ exports.updateBoat = async (req, res) => {
 	}
 }
 
-exports.updateTicket = async (req, res) => {
+export const updateTicket = async (req, res) => {
 	try {
 		const updated = await Ticket.findOneAndUpdate(
 			{ id: req.params.id },
@@ -158,7 +158,7 @@ exports.updateTicket = async (req, res) => {
 	}
 }
 
-exports.updateToDo = async (req, res) => {
+export const updateToDo = async (req, res) => {
 	try {
 		const updated = await Todo.findOneAndUpdate(
 			{ id: req.params.id },
@@ -179,7 +179,7 @@ exports.updateToDo = async (req, res) => {
 	}
 }
 
-exports.deleteCustomer = async (req, res) => {
+export const deleteCustomer = async (req, res) => {
 	try {
 		const deleted = await Customer.findOneAndDelete({ id: req.params.id })
 
@@ -193,7 +193,7 @@ exports.deleteCustomer = async (req, res) => {
 	}
 }
 
-exports.deleteBoat = async (req, res) => {
+export const deleteBoat = async (req, res) => {
 	try {
 		const deleted = await Vessel.findOneAndDelete({ id: req.params.id })
 
@@ -207,7 +207,7 @@ exports.deleteBoat = async (req, res) => {
 	}
 }
 
-exports.deleteTicket = async (req, res) => {
+export const deleteTicket = async (req, res) => {
 	try {
 		const deleted = await Ticket.findOneAndDelete({ id: req.params.id })
 
@@ -221,7 +221,7 @@ exports.deleteTicket = async (req, res) => {
 	}
 }
 
-exports.deleteToDo = async (req, res) => {
+export const deleteToDo = async (req, res) => {
 	try {
 		const deleted = await Todo.findOneAndDelete({ id: req.params.id })
 

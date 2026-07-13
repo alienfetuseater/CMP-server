@@ -1,5 +1,5 @@
-const express = require('express')
-const {
+import express from 'express'
+import {
 	getCustomerProfile,
 	getBoatProfile,
 	getTickets,
@@ -16,7 +16,7 @@ const {
 	deleteBoat,
 	deleteTicket,
 	deleteToDo,
-} = require('../controllers.js/controllers.js')
+} from '../controllers.js/controllers.js'
 
 const router = express.Router()
 
@@ -40,4 +40,4 @@ router.delete('/deleteBoat/:id', deleteBoat)
 router.delete('/deleteTicket/:id', deleteTicket)
 router.delete('/deleteToDo/:id', deleteToDo)
 
-module.exports = router
+export default router

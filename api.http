@@ -1,0 +1,29 @@
+@host = http://localhost:8000/api/CMPGarage
+
+
+
+### Create Customer
+POST {{host}}/newCustomer
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "phone": "555-1234",
+  "email": "john@example.com",
+  "address": "123 Harbor Lane"
+}
+
+###
+POST {{host}}/newCustomer
+Content-Type: application/json
+
+{
+  "name": "Jane Doe",
+  "phone": "511-1234",
+  "email": "jane@example.com",
+  "address": "123 Harbor Lane"
+}
+
+### Get All Customers
+GET {{host}}/getCustomerProfile
+

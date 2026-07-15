@@ -12,7 +12,7 @@ const customerSchema = new Schema(
 		createdAt: { type: Date, default: Date.now },
 		vesselIds: [{ type: Schema.Types.ObjectId, ref: 'Vessel' }],
 	},
-	{ collection: 'CustomerCollection' },
+	{ collection: 'CustomersCollection' },
 )
 
 // -------------------- Vessel --------------------

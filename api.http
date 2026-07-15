@@ -1,6 +1,9 @@
 @host = http://localhost:8000/api/CMPGarage
 
 
+############################################################
+# CUSTOMER ROUTES
+############################################################
 
 ### Create Customer
 POST {{host}}/newCustomer
@@ -13,17 +16,42 @@ Content-Type: application/json
   "address": "123 Harbor Lane"
 }
 
-###
-POST {{host}}/newCustomer
+### Search for customers with the name "John"
+GET {{host}}/searchCustomers?name=John
+
+# this customer_id was copied from the results of the previous request to be used in the following request
+@customer_id = 6a56db24cb9b49d3356fdcd8
+
+### Get Customer Profile for the chosen result
+GET {{host}}/getCustomerProfile?id={{customer_id}}
+
+### Get all customers
+GET {{host}}/getAllCustomers
+
+### Create New Vessel
+POST {{host}}/newBoat
 Content-Type: application/json
 
 {
-  "name": "Jane Doe",
-  "phone": "511-1234",
-  "email": "jane@example.com",
-  "address": "123 Harbor Lane"
+  "customerId": "6a56db24cb9b49d3356fdcd8",
+  "owner": "John Doe",
+  "customerName": "John Doe",
+  "customerPhone": "555-1234",
+  "vesselName": "Sea Ray 280 Sundancer",
+  "vesselMake": "Sea Ray",
+  "vesselYear": 2018,
+  "hullIdNumber": "SER280SDN2018XYZ",
+  "numberOfEngines": 2,
+  "engineSerialNumbers": [
+    "ENG-SN-55667788",
+    "ENG-SN-55667789"
+  ],
+  "generator": true,
+  "boatLocation": "slip",
+  "engineMake": "MerCruiser",
+  "engineModel": "4.5L MPI",
+  "engineHours": 412
 }
 
-### Get All Customers
-GET {{host}}/getCustomerProfile
-
+### search for vessels with the name "Sea Ray"
+GET {{host}}/searchVessels?name=Sea Ray

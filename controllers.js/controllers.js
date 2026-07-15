@@ -11,10 +11,57 @@ const buildRecord = (body, defaults = {}) => ({
 	id: body.id || randomUUID(),
 })
 
+export const searchCustomersByName = async (req, res) => {
+	try {
+		const name = req.query.name
+		if (!name) {
+			return sendError(res, 400, 'Name query parameter is required')
+		}
+
+		// Case-insensitive partial match
+		const customers = await Customer.find({
+			name: { $regex: name, $options: 'i' },
+		}).select('name phone email _id')
+
+		res.status(200).json(customers)
+	} catch (error) {
+		console.error('Failed to search customers:', error)
+		sendError(res, 500, 'Failed to search customers')
+	}
+}
+
+export const searchVesselByName = async (req, res) => {
+	try {
+		const name = req.query.name
+		if (!name) {
+			return sendError(
+				res,
+				400,
+				'Vessel name query parameter is required',
+			)
+		}
+
+		// Case-insensitive partial match on vesselName
+		const vessels = await Vessel.find({
+			vesselName: { $regex: name, $options: 'i' },
+		}).select('vesselName vesselMake vesselYear customerId _id')
+
+		res.status(200).json(vessels)
+	} catch (error) {
+		console.error('Failed to search vessels:', error)
+		sendError(res, 500, 'Failed to search vessels')
+	}
+}
+
 export const getCustomerProfile = async (req, res) => {
 	try {
 		const customerId = req.params.id || req.query.id
-		const customer = await Customer.findOne({ id: customerId })
+
+		if (!customerId) {
+			return sendError(res, 400, 'Customer ID is required')
+		}
+
+		const customer = await Customer.findById(customerId)
 
 		if (!customer) {
 			return sendError(res, 404, 'Customer not found')
@@ -22,6 +69,7 @@ export const getCustomerProfile = async (req, res) => {
 
 		res.status(200).json(customer)
 	} catch (error) {
+		console.error('Failed to fetch customer profile:', error)
 		sendError(res, 500, 'Failed to fetch customer profile')
 	}
 }
@@ -29,7 +77,12 @@ export const getCustomerProfile = async (req, res) => {
 export const getBoatProfile = async (req, res) => {
 	try {
 		const vesselId = req.params.id || req.query.id
-		const vessel = await Vessel.findOne({ id: vesselId })
+
+		if (!vesselId) {
+			return sendError(res, 400, 'Vessel ID is required')
+		}
+
+		const vessel = await Vessel.findById(vesselId)
 
 		if (!vessel) {
 			return sendError(res, 404, 'Vessel not found')
@@ -37,11 +90,48 @@ export const getBoatProfile = async (req, res) => {
 
 		res.status(200).json(vessel)
 	} catch (error) {
+		console.error('Failed to fetch vessel profile:', error)
 		sendError(res, 500, 'Failed to fetch vessel profile')
 	}
 }
 
-export const getTickets = async (req, res) => {
+export const getTicket = async (req, res) => {
+	try {
+		const ticket = await Ticket.find().sort({ createdAt: -1 })
+		res.status(200).json(ticket)
+	} catch (error) {
+		sendError(res, 500, 'Failed to fetch ticket')
+	}
+}
+
+export const getToDo = async (req, res) => {
+	try {
+		const todo = await Todo.find().sort({ dueDate: 1 })
+		res.status(200).json(todo)
+	} catch (error) {
+		sendError(res, 500, 'Failed to fetch todo')
+	}
+}
+
+export const getAllCustomers = async (req, res) => {
+	try {
+		const customers = await Customer.find().sort({ createdAt: -1 })
+		res.status(200).json(customers)
+	} catch (error) {
+		sendError(res, 500, 'Failed to fetch customers')
+	}
+}
+
+export const getAllBoats = async (req, res) => {
+	try {
+		const vessels = await Vessel.find().sort({ createdAt: -1 })
+		res.status(200).json(vessels)
+	} catch (error) {
+		sendError(res, 500, 'Failed to fetch vessels')
+	}
+}
+
+export const getAllTickets = async (req, res) => {
 	try {
 		const tickets = await Ticket.find().sort({ createdAt: -1 })
 		res.status(200).json(tickets)
@@ -50,7 +140,7 @@ export const getTickets = async (req, res) => {
 	}
 }
 
-export const getToDos = async (req, res) => {
+export const getAllToDos = async (req, res) => {
 	try {
 		const todos = await Todo.find().sort({ dueDate: 1 })
 		res.status(200).json(todos)
@@ -64,6 +154,7 @@ export const newCustomer = async (req, res) => {
 		const customer = await Customer.create(buildRecord(req.body))
 		res.status(201).json(customer)
 	} catch (error) {
+		console.error(error)
 		sendError(res, 500, 'Failed to create customer')
 	}
 }
@@ -73,6 +164,7 @@ export const newBoat = async (req, res) => {
 		const vessel = await Vessel.create(buildRecord(req.body))
 		res.status(201).json(vessel)
 	} catch (error) {
+		console.error(error)
 		sendError(res, 500, 'Failed to create vessel')
 	}
 }

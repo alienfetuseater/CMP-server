@@ -1,9 +1,15 @@
 import express from 'express'
 import {
+	searchCustomersByName,
+	searchVesselByName,
 	getCustomerProfile,
 	getBoatProfile,
-	getTickets,
-	getToDos,
+	getTicket,
+	getToDo,
+	getAllCustomers,
+	getAllBoats,
+	getAllTickets,
+	getAllToDos,
 	newCustomer,
 	newBoat,
 	newTicket,
@@ -20,10 +26,18 @@ import {
 
 const router = express.Router()
 
+router.get('/searchCustomers', searchCustomersByName)
+router.get('/searchVessels', searchVesselByName)
+
 router.get('/getCustomerProfile', getCustomerProfile)
 router.get('/getBoatProfile', getBoatProfile)
-router.get('/getTickets', getTickets)
-router.get('/getToDos', getToDos)
+router.get('/getTicket', getTicket)
+router.get('/getToDo', getToDo)
+
+router.get('/getAllCustomers', getAllCustomers)
+router.get('/getAllBoats', getAllBoats)
+router.get('/getAllTickets', getAllTickets)
+router.get('/getAllToDos', getAllToDos)
 
 router.post('/newCustomer', newCustomer)
 router.post('/newBoat', newBoat)

@@ -73,6 +73,132 @@ const messageSchema = new Schema(
 	{ _id: false },
 )
 
+const diagnositicSchema = new Schema(
+	{
+		engine_oil: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		gear_lube: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		fuel_system: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		cooling_system: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		propeller_hardware: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		anodes_engine_drive: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		belts_hoses: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		steering_engine_mount_hardware: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		battery_voltage: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		terminals_connections: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		charger_shore_power: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		bilge_pump: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		navigation_anchorLights: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		ham_electronics_powerUp: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		hull_gellcoat: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		throughHull_seacocks: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		hull_trimTab_anodes: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		bottom_paint_growth: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		trim_tabs_operation: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		liftCables_pulleys: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		liftMotors_switches: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		bunks_guidePosts: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		dockLines_chafePoints: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		steeringFluid_operation: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		liveWell_washdownPumps: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		freshwater_system: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		head_waste_system: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		hatches_latches_drains: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		upholstery_canvas: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+		safety_equipment_check: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+		},
+	},
+	{ _id: false },
+)
+
 const ticketSchema = new Schema(
 	{
 		customerId: {
@@ -85,13 +211,34 @@ const ticketSchema = new Schema(
 			ref: 'Vessel',
 			required: true,
 		},
-		title: { type: String, required: true },
-		status: { type: String, required: true },
-		priority: { type: String, required: true },
+		service_category: {
+			type: String,
+			enum: ['inspection', 'repair', 'maintenance', 'upgrade'],
+			required: true,
+		},
+		service_title: { type: String, required: true },
+		status: {
+			type: String,
+			enum: [
+				'open',
+				'in progress',
+				'completed',
+				'closed',
+				'cancelled',
+				'on hold',
+			],
+			required: true,
+		},
+		priority: {
+			type: String,
+			enum: ['low', 'medium', 'high'],
+			required: true,
+		},
 		createdAt: { type: Date, default: Date.now },
 		scheduledDate: { type: Date, required: true },
 		notes: { type: String, default: '' },
 		messages: [messageSchema],
+		diagnostics: diagnositicSchema,
 	},
 	{ collection: 'TicketCollection' },
 )

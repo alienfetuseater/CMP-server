@@ -10,14 +10,19 @@ POST {{host}}/newCustomer
 Content-Type: application/json
 
 {
-  "name": "John Doe",
-  "phone": "555-1234",
-  "email": "john@example.com",
-  "address": "123 Harbor Lane"
+  "name": "Robert Hayes",
+  "phone": "555-6612",
+  "email": "robert.hayes@example.com",
+  "address": "9 Lighthouse Point, Ellenton, FL",
+  "createdAt": "2026-07-11T11:30:00Z",
+  "vesselIds": [
+    "66c0a1f9e3b4a9c2d4fab555"
+  ]
 }
 
+
 ### Search for customers with the name "John"
-GET {{host}}/searchCustomers?name=John
+GET {{host}}/searchCustomers?name=mike
 
 # this customer_id was copied from the results of the previous request to be used in the following request
 @customer_id = 6a56db24cb9b49d3356fdcd8
@@ -33,25 +38,103 @@ POST {{host}}/newBoat
 Content-Type: application/json
 
 {
-  "customerId": "6a56db24cb9b49d3356fdcd8",
-  "owner": "John Doe",
-  "customerName": "John Doe",
-  "customerPhone": "555-1234",
-  "vesselName": "Sea Ray 280 Sundancer",
-  "vesselMake": "Sea Ray",
+  "customerId": "66c0a1f9e3b4a9c2d4fab666",
+  "owner": "Tina Wallace",
+  "customerName": "Tina Wallace",
+  "customerPhone": "555-8834",
+  "vesselName": "Reel Therapy",
+  "vesselMake": "Sea Hunt",
   "vesselYear": 2018,
-  "hullIdNumber": "SER280SDN2018XYZ",
+  "hullIdNumber": "SHGF25-2018TWX",
   "numberOfEngines": 2,
   "engineSerialNumbers": [
-    "ENG-SN-55667788",
-    "ENG-SN-55667789"
+    "YAM-F150-998811",
+    "YAM-F150-998812"
   ],
-  "generator": true,
-  "boatLocation": "slip",
-  "engineMake": "MerCruiser",
-  "engineModel": "4.5L MPI",
-  "engineHours": 412
+  "generator": false,
+  "boatLocation": "trailor",
+  "engineMake": "Yamaha",
+  "engineModel": "F150",
+  "engineHours": 410
 }
+
 
 ### search for vessels with the name "Sea Ray"
 GET {{host}}/searchVessels?name=Sea Ray
+
+### return all vessels
+GET {{host}}/getAllBoats
+
+### submit new todo
+POST {{host}}/newTodo
+Content-Type: application/json
+
+{
+  "title": "Prepare inspection report",
+  "dueDate": "2026-07-21T09:00:00Z",
+  "completed": false,
+  "relatedTo": {
+    "type": "ticket",
+    "id": "66c0a1f9e3b4a9c2d4f77777"
+  }
+}
+
+### get all todos
+GET {{host}}/getAllTodos
+
+### post new ticket
+POST {{host}}/newTicket
+Content-Type: application/json
+
+{
+  "customerId": "66c0a1f9e3b4a9c2d4f33333",
+  "vesselId": "66c0a1f9e3b4a9c2d4f44444",
+  "service_category": "upgrade",
+  "service_title": "Install Garmin GPS & Radar",
+  "status": "on hold",
+  "priority": "low",
+  "scheduledDate": "2026-07-25T09:00:00Z",
+  "notes": "Customer waiting on delivery of radar dome.",
+  "messages": [
+    {
+      "sender": "tech",
+      "text": "GPS unit arrived. Radar dome still pending.",
+      "timestamp": "2026-07-12T08:30:00Z"
+    }
+  ],
+  "diagnostics": {
+    "engine_oil": "good",
+    "gear_lube": "good",
+    "fuel_system": "good",
+    "cooling_system": "good",
+    "propeller_hardware": "good",
+    "anodes_engine_drive": "good",
+    "belts_hoses": "good",
+    "steering_engine_mount_hardware": "good",
+    "battery_voltage": "good",
+    "terminals_connections": "good",
+    "charger_shore_power": "good",
+    "bilge_pump": "good",
+    "navigation_anchorLights": "monitor",
+    "ham_electronics_powerUp": "monitor",
+    "hull_gellcoat": "good",
+    "throughHull_seacocks": "good",
+    "hull_trimTab_anodes": "good",
+    "bottom_paint_growth": "good",
+    "trim_tabs_operation": "good",
+    "liftCables_pulleys": "good",
+    "liftMotors_switches": "good",
+    "bunks_guidePosts": "good",
+    "dockLines_chafePoints": "good",
+    "steeringFluid_operation": "good",
+    "liveWell_washdownPumps": "good",
+    "freshwater_system": "good",
+    "head_waste_system": "good",
+    "hatches_latches_drains": "good",
+    "upholstery_canvas": "good",
+    "safety_equipment_check": "good"
+  }
+}
+
+### get all tickets
+GET {{host}}/getAllTickets

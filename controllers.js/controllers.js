@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { Customer, Vessel, Ticket, Todo } from '../models/models.js'
+import { Customer, Vessel, Ticket, Reminder } from '../models/models.js'
 
 const sendError = (res, status, message) => {
 	res.status(status).json({ error: message })
@@ -304,12 +304,12 @@ export const getTicket = async (req, res) => {
 	}
 }
 
-export const getToDo = async (req, res) => {
+export const getReminder = async (req, res) => {
 	try {
-		const todo = await Todo.find().sort({ dueDate: 1 })
-		res.status(200).json(todo)
+		const reminder = await Reminder.find().sort({ dueDate: 1 })
+		res.status(200).json(reminder)
 	} catch (error) {
-		sendError(res, 500, 'Failed to fetch todo')
+		sendError(res, 500, 'Failed to fetch reminder')
 	}
 }
 
@@ -340,12 +340,12 @@ export const getAllTickets = async (req, res) => {
 	}
 }
 
-export const getAllToDos = async (req, res) => {
+export const getAllReminders = async (req, res) => {
 	try {
-		const todos = await Todo.find().sort({ dueDate: 1 })
-		res.status(200).json(todos)
+		const reminders = await Reminder.find().sort({ dueDate: 1 })
+		res.status(200).json(reminders)
 	} catch (error) {
-		sendError(res, 500, 'Failed to fetch todos')
+		sendError(res, 500, 'Failed to fetch reminders')
 	}
 }
 
@@ -378,12 +378,12 @@ export const newTicket = async (req, res) => {
 	}
 }
 
-export const newToDo = async (req, res) => {
+export const newReminder = async (req, res) => {
 	try {
-		const todo = await Todo.create(buildRecord(req.body))
-		res.status(201).json(todo)
+		const reminder = await Reminder.create(buildRecord(req.body))
+		res.status(201).json(reminder)
 	} catch (error) {
-		sendError(res, 500, 'Failed to create todo')
+		sendError(res, 500, 'Failed to create reminder')
 	}
 }
 
@@ -450,9 +450,9 @@ export const updateTicket = async (req, res) => {
 	}
 }
 
-export const updateToDo = async (req, res) => {
+export const updateReminder = async (req, res) => {
 	try {
-		const updated = await Todo.findOneAndUpdate(
+		const updated = await Reminder.findOneAndUpdate(
 			{ id: req.params.id },
 			req.body,
 			{
@@ -462,12 +462,12 @@ export const updateToDo = async (req, res) => {
 		)
 
 		if (!updated) {
-			return sendError(res, 404, 'Todo not found')
+			return sendError(res, 404, 'Reminder not found')
 		}
 
 		res.status(200).json(updated)
 	} catch (error) {
-		sendError(res, 500, 'Failed to update todo')
+		sendError(res, 500, 'Failed to update reminder')
 	}
 }
 
@@ -513,16 +513,16 @@ export const deleteTicket = async (req, res) => {
 	}
 }
 
-export const deleteToDo = async (req, res) => {
+export const deleteReminder = async (req, res) => {
 	try {
-		const deleted = await Todo.findOneAndDelete({ id: req.params.id })
+		const deleted = await Reminder.findOneAndDelete({ id: req.params.id })
 
 		if (!deleted) {
-			return sendError(res, 404, 'Todo not found')
+			return sendError(res, 404, 'reminder not found')
 		}
 
-		res.status(200).json({ message: 'Todo deleted' })
+		res.status(200).json({ message: 'reminder deleted' })
 	} catch (error) {
-		sendError(res, 500, 'Failed to delete todo')
+		sendError(res, 500, 'Failed to delete reminder')
 	}
 }

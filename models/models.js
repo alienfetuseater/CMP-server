@@ -45,8 +45,8 @@ const vesselSchema = new Schema(
 	{ collection: 'BoatsCollection' },
 )
 
-// -------------------- Todo --------------------
-const todoSchema = new Schema(
+// -------------------- reminder --------------------
+const reminderSchema = new Schema(
 	{
 		title: { type: String, required: true },
 		dueDate: { type: Date, required: true },
@@ -60,7 +60,7 @@ const todoSchema = new Schema(
 			id: { type: Schema.Types.ObjectId, required: true },
 		},
 	},
-	{ collection: 'ToDoCollection' },
+	{ collection: 'RemindersCollection' },
 )
 
 // -------------------- Ticket + Embedded Messages --------------------
@@ -246,5 +246,5 @@ const ticketSchema = new Schema(
 // -------------------- Exports --------------------
 export const Customer = mongoose.model('Customer', customerSchema)
 export const Vessel = mongoose.model('Vessel', vesselSchema)
-export const Todo = mongoose.model('Todo', todoSchema)
+export const Reminder = mongoose.model('Reminder', reminderSchema)
 export const Ticket = mongoose.model('Ticket', ticketSchema)

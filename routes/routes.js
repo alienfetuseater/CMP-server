@@ -5,23 +5,23 @@ import {
 	getCustomerProfile,
 	getBoatProfile,
 	getTicket,
-	getToDo,
+	getReminder,
 	getAllCustomers,
 	getAllBoats,
 	getAllTickets,
-	getAllToDos,
+	getAllReminders,
 	newCustomer,
 	newBoat,
 	newTicket,
-	newToDo,
+	newReminder,
 	updateCustomer,
 	updateBoat,
 	updateTicket,
-	updateToDo,
+	updateReminder,
 	deleteCustomer,
 	deleteBoat,
 	deleteTicket,
-	deleteToDo,
+	deleteReminder,
 } from '../controllers.js/controllers.js'
 
 const router = express.Router()
@@ -32,26 +32,26 @@ router.get('/searchVessels', searchVesselByName)
 router.get('/getCustomerProfile', getCustomerProfile)
 router.get('/getBoatProfile', getBoatProfile)
 router.get('/getTicket', getTicket)
-router.get('/getToDo', getToDo)
+router.get('/getReminder', getReminder)
 
 router.get('/getAllCustomers', getAllCustomers)
 router.get('/getAllBoats', getAllBoats)
 router.get('/getAllTickets', getAllTickets)
-router.get('/getAllToDos', getAllToDos)
+router.get('/getAllReminders', getAllReminders)
 
 router.post('/newCustomer', newCustomer)
 router.post('/newBoat', newBoat)
 router.post('/newTicket', newTicket)
-router.post('/newToDo', newToDo)
+router.post('/newReminder', newReminder)
 
 router.put('/updateCustomer/:id', updateCustomer)
 router.put('/updateBoat/:id', updateBoat)
 router.put('/updateTicket/:id', updateTicket)
-router.put('/updateToDo/:id', updateToDo)
+router.put('/updateReminder/:id', updateReminder)
 
 router.delete('/deleteCustomer/:id', deleteCustomer)
 router.delete('/deleteBoat/:id', deleteBoat)
 router.delete('/deleteTicket/:id', deleteTicket)
-router.delete('/deleteToDo/:id', deleteToDo)
+router.delete('/deleteReminder/:id', deleteReminder)
 
 export default router

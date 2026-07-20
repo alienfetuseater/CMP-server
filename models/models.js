@@ -167,7 +167,6 @@ const vesselSchema = new Schema(
 		engineMake: { type: String, required: true },
 		engineModel: { type: String, required: true },
 		engineHours: { type: Number, required: true },
-		diagnostics: diagnositicSchema,
 	},
 	{ collection: 'BoatsCollection' },
 )
@@ -239,6 +238,7 @@ const ticketSchema = new Schema(
 		scheduledDate: { type: Date, required: true },
 		notes: { type: String, default: '' },
 		messages: [messageSchema],
+		diagnostics: diagnositicSchema,
 	},
 	{ collection: 'TicketsCollection' },
 )

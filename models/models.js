@@ -199,6 +199,15 @@ const messageSchema = new Schema(
 	{ _id: false },
 )
 
+const planActionItemSchema = new Schema(
+	{
+		id: { type: String, required: true },
+		text: { type: String, required: true },
+		completed: { type: Boolean, default: false },
+	},
+	{ _id: false },
+)
+
 const ticketSchema = new Schema(
 	{
 		customerId: {
@@ -237,6 +246,7 @@ const ticketSchema = new Schema(
 		createdAt: { type: Date, default: Date.now },
 		scheduledDate: { type: Date, required: true },
 		notes: { type: String, default: '' },
+		planOfAction: { type: [planActionItemSchema], default: [] },
 		messages: [messageSchema],
 		diagnostics: diagnositicSchema,
 	},

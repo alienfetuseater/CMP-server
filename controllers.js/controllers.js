@@ -380,7 +380,9 @@ export const newTicket = async (req, res) => {
 
 export const newReminder = async (req, res) => {
 	try {
-		const reminder = await Reminder.create(buildRecord(req.body))
+		const reminder = await Reminder.create(
+			buildRecord(req.body, { notes: '' }),
+		)
 		res.status(201).json(reminder)
 	} catch (error) {
 		sendError(res, 500, 'Failed to create reminder')

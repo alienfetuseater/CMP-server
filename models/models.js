@@ -177,13 +177,14 @@ const reminderSchema = new Schema(
 		title: { type: String, required: true },
 		dueDate: { type: Date, required: true },
 		completed: { type: Boolean, default: false },
+		notes: { type: String, default: '' },
 		relatedTo: {
 			type: {
 				type: String,
 				enum: ['customer', 'vessel', 'ticket'],
 				required: true,
 			},
-			id: { type: Schema.Types.ObjectId, required: true },
+			id: { type: String, required: true },
 		},
 	},
 	{ collection: 'RemindersCollection' },

@@ -16,63 +16,6 @@ const customerSchema = new Schema(
 )
 
 // -------------------- Vessel --------------------
-const vesselSchema = new Schema(
-	{
-		customerId: {
-			type: Schema.Types.ObjectId,
-			ref: 'Customer',
-			required: true,
-		},
-		owner: String,
-		customerName: { type: String, required: true },
-		customerPhone: { type: String, required: true },
-		vesselName: { type: String, required: true },
-		vesselMake: { type: String, required: true },
-		vesselYear: { type: Number, required: true },
-		hullIdNumber: { type: String, required: true },
-		numberOfEngines: { type: Number, required: true },
-		engineSerialNumbers: [{ type: String }],
-		generator: { type: Boolean, required: true },
-		boatLocation: {
-			type: String,
-			enum: ['trailor', 'slip', 'dry dock'],
-			required: true,
-		},
-		engineMake: { type: String, required: true },
-		engineModel: { type: String, required: true },
-		engineHours: { type: Number, required: true },
-	},
-	{ collection: 'BoatsCollection' },
-)
-
-// -------------------- reminder --------------------
-const reminderSchema = new Schema(
-	{
-		title: { type: String, required: true },
-		dueDate: { type: Date, required: true },
-		completed: { type: Boolean, default: false },
-		relatedTo: {
-			type: {
-				type: String,
-				enum: ['customer', 'vessel', 'ticket'],
-				required: true,
-			},
-			id: { type: Schema.Types.ObjectId, required: true },
-		},
-	},
-	{ collection: 'RemindersCollection' },
-)
-
-// -------------------- Ticket + Embedded Messages --------------------
-const messageSchema = new Schema(
-	{
-		sender: { type: String, required: true },
-		text: { type: String, required: true },
-		timestamp: { type: Date, default: Date.now },
-	},
-	{ _id: false },
-)
-
 const diagnositicSchema = new Schema(
 	{
 		engine_oil: {
@@ -199,6 +142,64 @@ const diagnositicSchema = new Schema(
 	{ _id: false },
 )
 
+const vesselSchema = new Schema(
+	{
+		customerId: {
+			type: Schema.Types.ObjectId,
+			ref: 'Customer',
+			required: true,
+		},
+		owner: String,
+		customerName: { type: String, required: true },
+		customerPhone: { type: String, required: true },
+		vesselName: { type: String, required: true },
+		vesselMake: { type: String, required: true },
+		vesselYear: { type: Number, required: true },
+		hullIdNumber: { type: String, required: true },
+		numberOfEngines: { type: Number, required: true },
+		engineSerialNumbers: [{ type: String }],
+		generator: { type: Boolean, required: true },
+		boatLocation: {
+			type: String,
+			enum: ['trailor', 'slip', 'dry dock'],
+			required: true,
+		},
+		engineMake: { type: String, required: true },
+		engineModel: { type: String, required: true },
+		engineHours: { type: Number, required: true },
+		diagnostics: diagnositicSchema,
+	},
+	{ collection: 'BoatsCollection' },
+)
+
+// -------------------- reminder --------------------
+const reminderSchema = new Schema(
+	{
+		title: { type: String, required: true },
+		dueDate: { type: Date, required: true },
+		completed: { type: Boolean, default: false },
+		relatedTo: {
+			type: {
+				type: String,
+				enum: ['customer', 'vessel', 'ticket'],
+				required: true,
+			},
+			id: { type: Schema.Types.ObjectId, required: true },
+		},
+	},
+	{ collection: 'RemindersCollection' },
+)
+
+// -------------------- Ticket + Embedded Messages --------------------
+const messageSchema = new Schema(
+	{
+		sender: { type: String, required: true },
+		text: { type: String, required: true },
+		timestamp: { type: Date, default: Date.now },
+	},
+	{ _id: false },
+)
+
 const ticketSchema = new Schema(
 	{
 		customerId: {
@@ -238,9 +239,8 @@ const ticketSchema = new Schema(
 		scheduledDate: { type: Date, required: true },
 		notes: { type: String, default: '' },
 		messages: [messageSchema],
-		diagnostics: diagnositicSchema,
 	},
-	{ collection: 'TicketCollection' },
+	{ collection: 'TicketsCollection' },
 )
 
 // -------------------- Exports --------------------

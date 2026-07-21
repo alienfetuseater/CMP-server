@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import mongoose from 'mongoose'
 import { Customer, Vessel, Ticket, Reminder } from '../models/models.js'
 
 const sendError = (res, status, message) => {
@@ -433,14 +434,15 @@ export const updateBoat = async (req, res) => {
 
 export const updateTicket = async (req, res) => {
 	try {
-		const updated = await Ticket.findOneAndUpdate(
-			{ id: req.params.id },
-			req.body,
-			{
-				new: true,
-				runValidators: true,
-			},
-		)
+		const ticketId = String(req.params.id || '')
+		const query = mongoose.Types.ObjectId.isValid(ticketId)
+			? { $or: [{ id: ticketId }, { _id: ticketId }] }
+			: { id: ticketId }
+
+		const updated = await Ticket.findOneAndUpdate(query, req.body, {
+			new: true,
+			runValidators: true,
+		})
 
 		if (!updated) {
 			return sendError(res, 404, 'Ticket not found')

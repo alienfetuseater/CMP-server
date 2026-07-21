@@ -3,7 +3,12 @@ import CMPRoutes from './routes/routes.js'
 import { errorHandler } from './middleware/error.js'
 import { dbConnection } from './middleware/dbConnection.js'
 import dotenv from 'dotenv'
-dotenv.config()
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+dotenv.config({ path: path.join(__dirname, '.env'), override: true })
 const port = process.env.PORT || 8000
 
 dbConnection()

@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto'
 import mongoose from 'mongoose'
+import nodemailer from 'nodemailer'
+import PDFDocument from 'pdfkit'
 import { Customer, Vessel, Ticket, Reminder } from '../models/models.js'
 
 const sendError = (res, status, message) => {
@@ -11,6 +13,204 @@ const buildRecord = (body, defaults = {}) => ({
 	...body,
 	id: body.id || randomUUID(),
 })
+
+const toTicketQuery = (ticketId) =>
+	mongoose.Types.ObjectId.isValid(ticketId)
+		? { $or: [{ id: ticketId }, { _id: ticketId }] }
+		: { id: ticketId }
+
+const toEntityQuery = (entityId) =>
+	mongoose.Types.ObjectId.isValid(entityId)
+		? { $or: [{ id: entityId }, { _id: entityId }] }
+		: { id: entityId }
+
+const formatPdfDate = (value) => {
+	if (!value) return 'N/A'
+	const date = new Date(value)
+	if (Number.isNaN(date.getTime())) return 'N/A'
+	return date.toLocaleString()
+}
+
+const normalizeText = (value) => {
+	if (value === undefined || value === null) return ''
+	return String(value).trim()
+}
+
+const splitHistoryNotes = (value) => {
+	const raw = normalizeText(value)
+	if (!raw) return []
+	return raw
+		.split(/\n\s*\n/g)
+		.map((entry) => entry.trim())
+		.filter(Boolean)
+}
+
+const createEmailTransporter = () => {
+	const MAIL_HOST = normalizeText(process.env.MAIL_HOST)
+	const MAIL_PORT = normalizeText(process.env.MAIL_PORT)
+	const MAIL_SECURE = normalizeText(process.env.MAIL_SECURE)
+	const MAIL_USER = normalizeText(process.env.MAIL_USER)
+	const MAIL_PASS = normalizeText(process.env.MAIL_PASS)
+	const MAIL_FROM = normalizeText(process.env.MAIL_FROM)
+	const MAIL_SERVICE = normalizeText(process.env.MAIL_SERVICE)
+
+	if (!MAIL_FROM) {
+		throw new Error('MAIL_FROM is not configured on the server')
+	}
+
+	if (MAIL_SERVICE) {
+		if (!MAIL_USER || !MAIL_PASS) {
+			throw new Error(
+				'MAIL_USER and MAIL_PASS are required when MAIL_SERVICE is configured',
+			)
+		}
+
+		return {
+			transporter: nodemailer.createTransport({
+				service: MAIL_SERVICE,
+				auth: { user: MAIL_USER, pass: MAIL_PASS },
+			}),
+			fromAddress: MAIL_FROM,
+		}
+	}
+
+	if (!MAIL_HOST || !MAIL_PORT || !MAIL_USER || !MAIL_PASS) {
+		throw new Error(
+			'MAIL_HOST, MAIL_PORT, MAIL_USER, and MAIL_PASS are required for SMTP email delivery',
+		)
+	}
+
+	const parsedPort = Number(MAIL_PORT)
+	if (!Number.isFinite(parsedPort)) {
+		throw new Error('MAIL_PORT must be a valid number')
+	}
+
+	const secure = String(MAIL_SECURE || '').toLowerCase() === 'true'
+
+	return {
+		transporter: nodemailer.createTransport({
+			host: MAIL_HOST,
+			port: parsedPort,
+			secure,
+			auth: { user: MAIL_USER, pass: MAIL_PASS },
+		}),
+		fromAddress: MAIL_FROM,
+	}
+}
+
+const createTicketPdfBuffer = ({ ticket, customer, vessel }) =>
+	new Promise((resolve, reject) => {
+		const doc = new PDFDocument({ margin: 40 })
+		const chunks = []
+
+		doc.on('data', (chunk) => chunks.push(chunk))
+		doc.on('end', () => resolve(Buffer.concat(chunks)))
+		doc.on('error', reject)
+
+		doc.fontSize(20).text('CMP Garage Ticket Progress Update')
+		doc.moveDown(0.5)
+		doc.fontSize(11)
+			.fillColor('#334155')
+			.text(`Generated: ${formatPdfDate(new Date())}`)
+		doc.fillColor('black')
+		doc.moveDown()
+
+		doc.fontSize(14).text('Ticket Overview')
+		doc.fontSize(11)
+		doc.text(
+			`Ticket ID: ${normalizeText(ticket.id || ticket._id) || 'N/A'}`,
+		)
+		doc.text(
+			`Service Title: ${normalizeText(ticket.service_title) || 'N/A'}`,
+		)
+		doc.text(`Category: ${normalizeText(ticket.service_category) || 'N/A'}`)
+		doc.text(`Status: ${normalizeText(ticket.status) || 'N/A'}`)
+		doc.text(`Priority: ${normalizeText(ticket.priority) || 'N/A'}`)
+		doc.text(`Created: ${formatPdfDate(ticket.createdAt)}`)
+		doc.text(`Scheduled: ${formatPdfDate(ticket.scheduledDate)}`)
+		doc.moveDown()
+
+		doc.fontSize(14).text('Customer and Vessel')
+		doc.fontSize(11)
+		doc.text(`Customer: ${normalizeText(customer?.name) || 'N/A'}`)
+		doc.text(`Customer Email: ${normalizeText(customer?.email) || 'N/A'}`)
+		doc.text(`Vessel: ${normalizeText(vessel?.vesselName) || 'N/A'}`)
+		doc.moveDown()
+
+		doc.fontSize(14).text('Initial Assessment')
+		doc.fontSize(11).text(
+			normalizeText(ticket.initialAssessment) ||
+				'No initial assessment provided.',
+		)
+		doc.moveDown()
+
+		doc.fontSize(14).text('Recommended Service')
+		doc.fontSize(11).text(
+			normalizeText(ticket.recommendedService) ||
+				'No recommended service provided.',
+		)
+		doc.moveDown()
+
+		doc.fontSize(14).text('Plan of Action')
+		doc.fontSize(11)
+		const planItems = Array.isArray(ticket.planOfAction)
+			? ticket.planOfAction
+			: []
+		if (!planItems.length) {
+			doc.text('No plan items have been added.')
+		} else {
+			planItems.forEach((item) => {
+				const state = item?.completed ? '[x]' : '[ ]'
+				doc.text(
+					`${state} ${normalizeText(item?.text) || 'Untitled task'}`,
+				)
+			})
+		}
+		doc.moveDown()
+
+		doc.fontSize(14).text('Required Parts')
+		doc.fontSize(11)
+		const requiredParts = Array.isArray(ticket.requiredParts)
+			? ticket.requiredParts
+			: []
+		if (!requiredParts.length) {
+			doc.text('No required parts have been added.')
+		} else {
+			requiredParts.forEach((part) => {
+				const state = part?.completed ? '[x]' : '[ ]'
+				doc.text(
+					`${state} ${normalizeText(part?.text) || 'Unnamed part'}`,
+				)
+			})
+		}
+		doc.moveDown()
+
+		doc.fontSize(14).text('Notes History')
+		doc.fontSize(11)
+		const noteEntries = splitHistoryNotes(ticket.notes)
+		if (!noteEntries.length) {
+			doc.text('No notes have been added.')
+		} else {
+			noteEntries.forEach((entry, index) => {
+				doc.text(`${index + 1}. ${entry}`)
+			})
+		}
+		doc.moveDown()
+
+		doc.fontSize(14).text('Diagnostics')
+		doc.fontSize(11)
+		const diagnostics = ticket.diagnostics || {}
+		const diagnosticEntries = Object.entries(diagnostics)
+		if (!diagnosticEntries.length) {
+			doc.text('No diagnostics have been recorded.')
+		} else {
+			diagnosticEntries.forEach(([field, value]) => {
+				doc.text(`${field}: ${normalizeText(value) || 'N/A'}`)
+			})
+		}
+
+		doc.end()
+	})
 
 export const searchCustomersByName = async (req, res) => {
 	try {
@@ -392,14 +592,13 @@ export const newReminder = async (req, res) => {
 
 export const updateCustomer = async (req, res) => {
 	try {
-		const updated = await Customer.findOneAndUpdate(
-			{ id: req.params.id },
-			req.body,
-			{
-				new: true,
-				runValidators: true,
-			},
-		)
+		const customerId = String(req.params.id || '').trim()
+		const query = toEntityQuery(customerId)
+
+		const updated = await Customer.findOneAndUpdate(query, req.body, {
+			new: true,
+			runValidators: true,
+		})
 
 		if (!updated) {
 			return sendError(res, 404, 'Customer not found')
@@ -435,9 +634,7 @@ export const updateBoat = async (req, res) => {
 export const updateTicket = async (req, res) => {
 	try {
 		const ticketId = String(req.params.id || '')
-		const query = mongoose.Types.ObjectId.isValid(ticketId)
-			? { $or: [{ id: ticketId }, { _id: ticketId }] }
-			: { id: ticketId }
+		const query = toTicketQuery(ticketId)
 
 		const updated = await Ticket.findOneAndUpdate(query, req.body, {
 			new: true,
@@ -451,6 +648,105 @@ export const updateTicket = async (req, res) => {
 		res.status(200).json(updated)
 	} catch (error) {
 		sendError(res, 500, 'Failed to update ticket')
+	}
+}
+
+export const emailTicketProgress = async (req, res) => {
+	try {
+		const ticketId = String(req.params.id || '').trim()
+		if (!ticketId) {
+			return sendError(res, 400, 'Ticket id is required')
+		}
+
+		const ticket = await Ticket.findOne(toTicketQuery(ticketId)).lean()
+		if (!ticket) {
+			return sendError(res, 404, 'Ticket not found')
+		}
+
+		const customerId = String(ticket.customerId || '').trim()
+		if (!customerId) {
+			return sendError(res, 400, 'Ticket has no customer associated')
+		}
+
+		const customer = await Customer.findOne(
+			toEntityQuery(customerId),
+		).lean()
+		if (!customer) {
+			return sendError(res, 404, 'Customer for this ticket was not found')
+		}
+
+		const customerEmail = normalizeText(customer.email)
+		if (!customerEmail) {
+			return sendError(
+				res,
+				400,
+				'Customer profile does not have an email address configured',
+			)
+		}
+
+		const vesselId = String(ticket.vesselId || '').trim()
+		const vessel = vesselId
+			? await Vessel.findOne(toEntityQuery(vesselId)).lean()
+			: null
+
+		const { transporter, fromAddress } = createEmailTransporter()
+		const pdfBuffer = await createTicketPdfBuffer({
+			ticket,
+			customer,
+			vessel,
+		})
+		const ticketRef = normalizeText(ticket.id || ticket._id) || 'ticket'
+
+		await transporter.sendMail({
+			from: fromAddress,
+			to: customerEmail,
+			subject: `CMP Garage progress update: ${normalizeText(ticket.service_title) || ticketRef}`,
+			text:
+				`Hello ${normalizeText(customer.name) || 'Customer'},\n\n` +
+				`Attached is the latest progress update for your service ticket.\n\n` +
+				`Ticket: ${normalizeText(ticket.service_title) || ticketRef}\n` +
+				`Status: ${normalizeText(ticket.status) || 'N/A'}\n\n` +
+				`Thank you,\nCMP Garage`,
+			attachments: [
+				{
+					filename: `ticket-progress-${ticketRef}.pdf`,
+					content: pdfBuffer,
+					contentType: 'application/pdf',
+				},
+			],
+		})
+
+		res.status(200).json({
+			message: `Progress update emailed to ${customerEmail}`,
+			recipient: customerEmail,
+		})
+	} catch (error) {
+		console.error('Failed to email ticket progress update:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		const isMailConfigError =
+			message.includes('MAIL_FROM') ||
+			message.includes('MAIL_HOST') ||
+			message.includes('MAIL_PORT') ||
+			message.includes('MAIL_USER') ||
+			message.includes('MAIL_PASS') ||
+			message.includes('MAIL_SERVICE')
+
+		if (isMailConfigError) {
+			return sendError(res, 400, message)
+		}
+
+		const isMailDeliveryError =
+			message.includes('ECONNECTION') ||
+			message.includes('EAUTH') ||
+			message.includes('Invalid login') ||
+			message.includes('ENOTFOUND') ||
+			message.includes('ETIMEDOUT')
+
+		if (isMailDeliveryError) {
+			return sendError(res, 502, `Email delivery failed: ${message}`)
+		}
+
+		sendError(res, 500, message || 'Failed to email ticket progress update')
 	}
 }
 

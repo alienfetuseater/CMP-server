@@ -17,6 +17,7 @@ import {
 	updateCustomer,
 	updateBoat,
 	updateTicket,
+	emailTicketProgress,
 	updateReminder,
 	deleteCustomer,
 	deleteBoat,
@@ -43,6 +44,7 @@ router.post('/newCustomer', newCustomer)
 router.post('/newBoat', newBoat)
 router.post('/newTicket', newTicket)
 router.post('/newReminder', newReminder)
+router.post('/emailTicketProgress/:id', emailTicketProgress)
 
 router.put('/updateCustomer/:id', updateCustomer)
 router.put('/updateBoat/:id', updateBoat)

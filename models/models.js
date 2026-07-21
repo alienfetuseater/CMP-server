@@ -256,6 +256,8 @@ const ticketSchema = new Schema(
 		createdAt: { type: Date, default: Date.now },
 		scheduledDate: { type: Date, required: true },
 		notes: { type: String, default: '' },
+		initialAssessment: { type: String, default: '' },
+		recommendedService: { type: String, default: '' },
 		summaryOfWorkPerformed: { type: String, default: '' },
 		summaryOfFurtherRecommendations: { type: String, default: '' },
 		planOfAction: { type: [planActionItemSchema], default: [] },

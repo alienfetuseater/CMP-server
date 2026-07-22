@@ -166,6 +166,7 @@ const vesselSchema = new Schema(
 		},
 		engineMake: { type: String, required: true },
 		engineModel: { type: String, required: true },
+		engineHorsepower: { type: Number, required: true },
 		engineHours: { type: Number, required: true },
 	},
 	{ collection: 'BoatsCollection' },
@@ -175,13 +176,13 @@ const vesselSchema = new Schema(
 const reminderSchema = new Schema(
 	{
 		title: { type: String, required: true },
-		dueDate: { type: Date, required: true },
+		dueDate: { type: Date },
 		completed: { type: Boolean, default: false },
 		notes: { type: String, default: '' },
 		relatedTo: {
 			type: {
 				type: String,
-				enum: ['customer', 'vessel', 'ticket'],
+				enum: ['customer', 'vessel', 'ticket', 'other'],
 				required: true,
 			},
 			id: { type: String, required: true },

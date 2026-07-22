@@ -612,14 +612,13 @@ export const updateCustomer = async (req, res) => {
 
 export const updateBoat = async (req, res) => {
 	try {
-		const updated = await Vessel.findOneAndUpdate(
-			{ id: req.params.id },
-			req.body,
-			{
-				new: true,
-				runValidators: true,
-			},
-		)
+		const vesselId = String(req.params.id || '').trim()
+		const query = toEntityQuery(vesselId)
+
+		const updated = await Vessel.findOneAndUpdate(query, req.body, {
+			new: true,
+			runValidators: true,
+		})
 
 		if (!updated) {
 			return sendError(res, 404, 'Vessel not found')
@@ -752,14 +751,13 @@ export const emailTicketProgress = async (req, res) => {
 
 export const updateReminder = async (req, res) => {
 	try {
-		const updated = await Reminder.findOneAndUpdate(
-			{ id: req.params.id },
-			req.body,
-			{
-				new: true,
-				runValidators: true,
-			},
-		)
+		const reminderId = String(req.params.id || '').trim()
+		const query = toEntityQuery(reminderId)
+
+		const updated = await Reminder.findOneAndUpdate(query, req.body, {
+			new: true,
+			runValidators: true,
+		})
 
 		if (!updated) {
 			return sendError(res, 404, 'Reminder not found')

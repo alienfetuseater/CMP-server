@@ -6,6 +6,7 @@ import {
 	getBoatProfile,
 	getTicket,
 	getReminder,
+	previewVesselDossier,
 	getAllCustomers,
 	getAllBoats,
 	getAllTickets,
@@ -17,6 +18,7 @@ import {
 	updateCustomer,
 	updateBoat,
 	updateTicket,
+	emailVesselDossier,
 	emailTicketProgress,
 	updateReminder,
 	deleteCustomer,
@@ -44,6 +46,8 @@ router.post('/newCustomer', newCustomer)
 router.post('/newBoat', newBoat)
 router.post('/newTicket', newTicket)
 router.post('/newReminder', newReminder)
+router.get('/previewVesselDossier/:id', previewVesselDossier)
+router.post('/emailVesselDossier/:id', emailVesselDossier)
 router.post('/emailTicketProgress/:id', emailTicketProgress)
 
 router.put('/updateCustomer/:id', updateCustomer)

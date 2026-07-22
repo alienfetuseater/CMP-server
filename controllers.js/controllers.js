@@ -45,6 +45,23 @@ const splitHistoryNotes = (value) => {
 		.filter(Boolean)
 }
 
+const splitLines = (value) => {
+	const raw = normalizeText(value)
+	if (!raw) return []
+	return raw
+		.split(/\n+/g)
+		.map((entry) => entry.trim())
+		.filter(Boolean)
+}
+
+const formatDiagnosticFinding = (field, value) => {
+	const friendlyName = String(field || '')
+		.replace(/_/g, ' ')
+		.replace(/\b\w/g, (character) => character.toUpperCase())
+
+	return `${friendlyName}: ${normalizeText(value) || 'N/A'}`
+}
+
 const createEmailTransporter = () => {
 	const MAIL_HOST = normalizeText(process.env.MAIL_HOST)
 	const MAIL_PORT = normalizeText(process.env.MAIL_PORT)
@@ -212,6 +229,143 @@ const createTicketPdfBuffer = ({ ticket, customer, vessel }) =>
 		doc.end()
 	})
 
+const createVesselDossierPdfBuffer = ({ vessel, customer, tickets }) =>
+	new Promise((resolve, reject) => {
+		const doc = new PDFDocument({ margin: 40 })
+		const chunks = []
+
+		doc.on('data', (chunk) => chunks.push(chunk))
+		doc.on('end', () => resolve(Buffer.concat(chunks)))
+		doc.on('error', reject)
+
+		const vesselName = normalizeText(vessel?.vesselName) || 'Vessel Dossier'
+		const vesselYear = normalizeText(vessel?.vesselYear)
+		const vesselMake = normalizeText(vessel?.vesselMake)
+		const engineMake = normalizeText(vessel?.engineMake)
+		const engineModel = normalizeText(vessel?.engineModel)
+		const engineHours = normalizeText(vessel?.engineHours)
+		const vesselHistory = Array.isArray(tickets)
+			? [...tickets].sort(
+					(a, b) =>
+						new Date(a?.scheduledDate || 0).getTime() -
+						new Date(b?.scheduledDate || 0).getTime(),
+				)
+			: []
+
+		doc.fontSize(22).text(vesselName)
+		doc.moveDown(0.5)
+		doc.fontSize(11)
+			.fillColor('#334155')
+			.text('Vessel dossier')
+			.text(`Generated: ${formatPdfDate(new Date())}`)
+		doc.fillColor('black')
+		doc.moveDown()
+
+		doc.fontSize(14).text('Vessel Demographics')
+		doc.fontSize(11)
+		doc.text(`Vessel Name: ${vesselName}`)
+		doc.text(`Year: ${vesselYear || 'N/A'}`)
+		doc.text(`Make: ${vesselMake || 'N/A'}`)
+		doc.text(`Model: ${engineModel || 'N/A'}`)
+		doc.text(
+			`Owner: ${normalizeText(vessel?.owner) || normalizeText(customer?.name) || 'N/A'}`,
+		)
+		doc.text(
+			`Customer / Primary Contact: ${normalizeText(customer?.name) || 'N/A'}`,
+		)
+		doc.text(
+			`Phone: ${normalizeText(vessel?.customerPhone) || normalizeText(customer?.phone) || 'N/A'}`,
+		)
+		doc.text(`Email: ${normalizeText(customer?.email) || 'N/A'}`)
+		doc.text(`Address: ${normalizeText(customer?.address) || 'N/A'}`)
+		doc.text(`Hull ID: ${normalizeText(vessel?.hullIdNumber) || 'N/A'}`)
+		doc.text(
+			`Number of Engines: ${normalizeText(vessel?.numberOfEngines) || 'N/A'}`,
+		)
+		doc.text(`Engine Make: ${engineMake || 'N/A'}`)
+		doc.text(`Engine Model: ${engineModel || 'N/A'}`)
+		doc.text(
+			`Engine Horsepower: ${normalizeText(vessel?.engineHorsepower) || 'N/A'}`,
+		)
+		doc.text(`Engine Hours: ${engineHours || 'N/A'}`)
+		doc.text(`Generator: ${vessel?.generator ? 'Yes' : 'No'}`)
+		doc.text(
+			`Boat Location: ${normalizeText(vessel?.boatLocation) || 'N/A'}`,
+		)
+		const serialNumbers = Array.isArray(vessel?.engineSerialNumbers)
+			? vessel.engineSerialNumbers
+					.map((serialNumber) => normalizeText(serialNumber))
+					.filter(Boolean)
+			: []
+		doc.text(
+			`Engine Serial Numbers: ${serialNumbers.length ? serialNumbers.join(', ') : 'N/A'}`,
+		)
+		doc.moveDown()
+
+		doc.fontSize(14).text('Chronological Service History')
+		doc.fontSize(11)
+		if (!vesselHistory.length) {
+			doc.text('No service history found for this vessel.')
+		} else {
+			vesselHistory.forEach((ticket, index) => {
+				doc.moveDown(0.5)
+				doc.fontSize(12).text(
+					`${index + 1}. ${formatPdfDate(ticket.scheduledDate)} - ${normalizeText(ticket.service_category) || 'service'} - ${normalizeText(ticket.service_title) || 'Untitled ticket'}`,
+				)
+				doc.fontSize(11)
+				doc.text(`Status: ${normalizeText(ticket.status) || 'N/A'}`)
+
+				const diagnosticEntries = Object.entries(
+					ticket.diagnostics || {},
+				).filter(
+					([, value]) =>
+						normalizeText(value) &&
+						normalizeText(value) !== 'good' &&
+						normalizeText(value) !== 'N/A',
+				)
+				if (diagnosticEntries.length) {
+					doc.text('Abnormal Findings:')
+					diagnosticEntries.forEach(([field, value]) => {
+						doc.text(`  - ${formatDiagnosticFinding(field, value)}`)
+					})
+				} else {
+					doc.text('Abnormal Findings: None recorded')
+				}
+
+				const noteEntries = splitHistoryNotes(ticket.notes)
+				if (noteEntries.length) {
+					doc.text('Notes:')
+					noteEntries.forEach((entry) => {
+						doc.text(`  - ${entry}`)
+					})
+				} else {
+					doc.text('Notes: None recorded')
+				}
+
+				doc.text('Work Done:')
+				doc.text(
+					normalizeText(ticket.summaryOfWorkPerformed) ||
+						'No work performed summary provided.',
+				)
+
+				doc.text('Work Recommended:')
+				doc.text(
+					normalizeText(ticket.summaryOfFurtherRecommendations) ||
+						normalizeText(ticket.recommendedService) ||
+						'No work recommendation provided.',
+				)
+
+				doc.text('Final Assessment:')
+				doc.text(
+					normalizeText(ticket.summaryOfWorkPerformed) ||
+						'No final assessment provided.',
+				)
+			})
+		}
+
+		doc.end()
+	})
+
 export const searchCustomersByName = async (req, res) => {
 	try {
 		const name = req.query.name
@@ -283,7 +437,7 @@ export const getBoatProfile = async (req, res) => {
 			return sendError(res, 400, 'Vessel ID is required')
 		}
 
-		const vessel = await Vessel.findById(vesselId)
+		const vessel = await Vessel.findOne(toEntityQuery(vesselId))
 
 		if (!vessel) {
 			return sendError(res, 404, 'Vessel not found')
@@ -746,6 +900,166 @@ export const emailTicketProgress = async (req, res) => {
 		}
 
 		sendError(res, 500, message || 'Failed to email ticket progress update')
+	}
+}
+
+export const emailVesselDossier = async (req, res) => {
+	try {
+		const vesselId = String(req.params.id || '').trim()
+		if (!vesselId) {
+			return sendError(res, 400, 'Vessel id is required')
+		}
+
+		const vessel = await Vessel.findOne(toEntityQuery(vesselId)).lean()
+		if (!vessel) {
+			return sendError(res, 404, 'Vessel not found')
+		}
+
+		const customerId = String(vessel.customerId || '').trim()
+		if (!customerId) {
+			return sendError(res, 400, 'Vessel has no customer associated')
+		}
+
+		const customer = await Customer.findOne(
+			toEntityQuery(customerId),
+		).lean()
+		if (!customer) {
+			return sendError(res, 404, 'Customer for this vessel was not found')
+		}
+
+		const customerEmail = normalizeText(customer.email)
+		if (!customerEmail) {
+			return sendError(
+				res,
+				400,
+				'Customer profile does not have an email address configured',
+			)
+		}
+
+		const adminCopyRecipient = normalizeText(
+			process.env.MAIL_COPY_TO ||
+				process.env.MAIL_TO ||
+				process.env.MAIL_FROM,
+		)
+		if (!adminCopyRecipient) {
+			return sendError(
+				res,
+				400,
+				'No copy recipient configured. Set MAIL_COPY_TO, MAIL_TO, or MAIL_FROM.',
+			)
+		}
+
+		const historyTickets = await Ticket.find({ vesselId })
+			.sort({ scheduledDate: -1 })
+			.lean()
+		const { transporter, fromAddress } = createEmailTransporter()
+		const pdfBuffer = await createVesselDossierPdfBuffer({
+			vessel,
+			customer,
+			tickets: historyTickets,
+		})
+		const vesselRef = normalizeText(vessel.vesselName) || vesselId
+
+		await transporter.sendMail({
+			from: fromAddress,
+			to: [customerEmail, adminCopyRecipient],
+			subject: `CMP Garage vessel dossier: ${vesselRef}`,
+			text:
+				`Hello ${normalizeText(customer.name) || 'Customer'},\n\n` +
+				`Attached is the vessel dossier for ${vesselRef}.\n\n` +
+				`Thank you,\nCMP Garage`,
+			attachments: [
+				{
+					filename: `vessel-dossier-${vesselRef}.pdf`,
+					content: pdfBuffer,
+					contentType: 'application/pdf',
+				},
+			],
+		})
+
+		res.status(200).json({
+			message: `Vessel dossier emailed to ${customerEmail} and ${adminCopyRecipient}`,
+			recipients: [customerEmail, adminCopyRecipient],
+		})
+	} catch (error) {
+		console.error('Failed to email vessel dossier:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		const isMailConfigError =
+			message.includes('MAIL_FROM') ||
+			message.includes('MAIL_HOST') ||
+			message.includes('MAIL_PORT') ||
+			message.includes('MAIL_USER') ||
+			message.includes('MAIL_PASS') ||
+			message.includes('MAIL_SERVICE')
+
+		if (isMailConfigError) {
+			return sendError(res, 400, message)
+		}
+
+		const isMailDeliveryError =
+			message.includes('ECONNECTION') ||
+			message.includes('EAUTH') ||
+			message.includes('Invalid login') ||
+			message.includes('ENOTFOUND') ||
+			message.includes('ETIMEDOUT')
+
+		if (isMailDeliveryError) {
+			return sendError(res, 502, `Email delivery failed: ${message}`)
+		}
+
+		sendError(res, 500, message || 'Failed to email vessel dossier')
+	}
+}
+
+export const previewVesselDossier = async (req, res) => {
+	try {
+		const vesselId = String(req.params.id || '').trim()
+		if (!vesselId) {
+			return sendError(res, 400, 'Vessel id is required')
+		}
+
+		const vessel = await Vessel.findOne(toEntityQuery(vesselId)).lean()
+		if (!vessel) {
+			return sendError(res, 404, 'Vessel not found')
+		}
+
+		const customerId = String(vessel.customerId || '').trim()
+		if (!customerId) {
+			return sendError(res, 400, 'Vessel has no customer associated')
+		}
+
+		const customer = await Customer.findOne(
+			toEntityQuery(customerId),
+		).lean()
+		if (!customer) {
+			return sendError(res, 404, 'Customer for this vessel was not found')
+		}
+
+		const historyTickets = await Ticket.find({ vesselId })
+			.sort({ scheduledDate: -1 })
+			.lean()
+		const pdfBuffer = await createVesselDossierPdfBuffer({
+			vessel,
+			customer,
+			tickets: historyTickets,
+		})
+		const vesselRef = normalizeText(vessel.vesselName) || vesselId
+
+		res.status(200)
+			.setHeader('Content-Type', 'application/pdf')
+			.setHeader(
+				'Content-Disposition',
+				`inline; filename="vessel-dossier-${vesselRef}.pdf"`,
+			)
+			.send(pdfBuffer)
+	} catch (error) {
+		console.error('Failed to generate vessel dossier preview:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		sendError(
+			res,
+			500,
+			message || 'Failed to generate vessel dossier preview',
+		)
 	}
 }
 

@@ -683,6 +683,27 @@ export const getBoatProfile = async (req, res) => {
 	}
 }
 
+export const getTicketProfile = async (req, res) => {
+	try {
+		const ticketId = String(req.params.id || req.query.id || '').trim()
+
+		if (!ticketId) {
+			return sendError(res, 400, 'Ticket ID is required')
+		}
+
+		const ticket = await Ticket.findOne(toTicketQuery(ticketId))
+
+		if (!ticket) {
+			return sendError(res, 404, 'Ticket not found')
+		}
+
+		res.status(200).json(ticket)
+	} catch (error) {
+		console.error('Failed to fetch ticket profile:', error)
+		sendError(res, 500, 'Failed to fetch ticket profile')
+	}
+}
+
 /**
  * @route GET /tickets/search
  *
@@ -921,7 +942,9 @@ export const getAllBoats = async (req, res) => {
 
 export const getAllTickets = async (req, res) => {
 	try {
-		const tickets = await Ticket.find().sort({ createdAt: -1 })
+		const tickets = await Ticket.find()
+			.select('-initialAssessmentPhotos -summaryOfWorkPerformedPhotos')
+			.sort({ createdAt: -1 })
 		res.status(200).json(tickets)
 	} catch (error) {
 		sendError(res, 500, 'Failed to fetch tickets')

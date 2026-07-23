@@ -168,6 +168,7 @@ const vesselSchema = new Schema(
 		engineModel: { type: String, required: true },
 		engineHorsepower: { type: Number, required: true },
 		engineHours: { type: Number, required: true },
+		boatPhotoDataUrl: { type: String, default: '' },
 		registrationDate: { type: Date, default: Date.now },
 	},
 	{ collection: 'BoatsCollection' },

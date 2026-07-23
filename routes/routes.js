@@ -4,6 +4,7 @@ import {
 	searchVesselByName,
 	getCustomerProfile,
 	getBoatProfile,
+	getTicketProfile,
 	getTicket,
 	getReminder,
 	previewVesselDossier,
@@ -34,6 +35,7 @@ router.get('/searchVessels', searchVesselByName)
 
 router.get('/getCustomerProfile', getCustomerProfile)
 router.get('/getBoatProfile', getBoatProfile)
+router.get('/getTicketProfile', getTicketProfile)
 router.get('/getTicket', getTicket)
 router.get('/getReminder', getReminder)
 

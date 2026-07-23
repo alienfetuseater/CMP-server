@@ -18,6 +18,8 @@ export const createAuthToken = (payload) => {
 	return jwt.sign(payload, getSecret(), { expiresIn })
 }
 
+export const verifyAuthToken = (token) => jwt.verify(token, getSecret())
+
 export const requireAuth = (req, res, next) => {
 	try {
 		const header = normalizeText(req.headers.authorization)
@@ -30,7 +32,7 @@ export const requireAuth = (req, res, next) => {
 			return res.status(401).json({ error: 'Authentication required' })
 		}
 
-		const decoded = jwt.verify(token, getSecret())
+		const decoded = verifyAuthToken(token)
 		req.authUser = decoded
 		next()
 	} catch {

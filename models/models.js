@@ -175,6 +175,26 @@ const vesselSchema = new Schema(
 	{ collection: 'BoatsCollection' },
 )
 
+// -------------------- Shared Embedded Message --------------------
+const messageSchema = new Schema(
+	{
+		id: {
+			type: String,
+			default: () => randomUUID(),
+			required: true,
+		},
+		senderId: { type: String, default: '' },
+		senderName: { type: String, default: '' },
+		recipientId: { type: String, default: '' },
+		recipientName: { type: String, default: '' },
+		sender: { type: String, default: '' },
+		text: { type: String, required: true },
+		timestamp: { type: Date, default: Date.now },
+		readByUserIds: { type: [String], default: [] },
+	},
+	{ _id: false },
+)
+
 // -------------------- reminder --------------------
 const reminderSchema = new Schema(
 	{
@@ -182,6 +202,8 @@ const reminderSchema = new Schema(
 		dueDate: { type: Date },
 		completed: { type: Boolean, default: false },
 		notes: { type: String, default: '' },
+		messages: { type: [messageSchema], default: [] },
+		archivedByUserIds: { type: [String], default: [] },
 		relatedTo: {
 			type: {
 				type: String,
@@ -192,16 +214,6 @@ const reminderSchema = new Schema(
 		},
 	},
 	{ collection: 'RemindersCollection' },
-)
-
-// -------------------- Ticket + Embedded Messages --------------------
-const messageSchema = new Schema(
-	{
-		sender: { type: String, required: true },
-		text: { type: String, required: true },
-		timestamp: { type: Date, default: Date.now },
-	},
-	{ _id: false },
 )
 
 const planActionItemSchema = new Schema(
@@ -286,7 +298,8 @@ const ticketSchema = new Schema(
 		summaryOfFurtherRecommendations: { type: String, default: '' },
 		planOfAction: { type: [planActionItemSchema], default: [] },
 		requiredParts: { type: [requiredPartItemSchema], default: [] },
-		messages: [messageSchema],
+		messages: { type: [messageSchema], default: [] },
+		archivedByUserIds: { type: [String], default: [] },
 		diagnostics: diagnositicSchema,
 	},
 	{ collection: 'TicketsCollection' },

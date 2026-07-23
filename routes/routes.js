@@ -3,6 +3,14 @@ import {
 	registerUser,
 	loginUser,
 	getAuthenticatedUser,
+	getUsers,
+	getConversationList,
+	getConversation,
+	markConversationRead,
+	archiveConversation,
+	deleteConversationMessage,
+	deleteConversation,
+	postConversationMessage,
 	searchCustomersByName,
 	searchVesselByName,
 	getCustomerProfile,
@@ -39,6 +47,19 @@ router.post('/auth/login', loginUser)
 router.get('/auth/me', requireAuth, getAuthenticatedUser)
 
 router.use(requireAuth)
+
+router.get('/users', getUsers)
+
+router.get('/conversations', getConversationList)
+router.get('/conversations/:type/:id', getConversation)
+router.post('/conversations/:type/:id/read', markConversationRead)
+router.post('/conversations/:type/:id/archive', archiveConversation)
+router.post('/conversations/:type/:id/messages', postConversationMessage)
+router.delete(
+	'/conversations/:type/:id/messages/:messageId',
+	deleteConversationMessage,
+)
+router.delete('/conversations/:type/:id', deleteConversation)
 
 router.get('/searchCustomers', searchCustomersByName)
 router.get('/searchVessels', searchVesselByName)

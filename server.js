@@ -1,7 +1,9 @@
 import express from 'express'
+import { createServer } from 'http'
 import CMPRoutes from './routes/routes.js'
 import { errorHandler } from './middleware/error.js'
 import { dbConnection } from './middleware/dbConnection.js'
+import { initializeRealtimeServer } from './realtime.js'
 import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -31,6 +33,9 @@ app.use('/api/CMPGarage', CMPRoutes)
 
 app.use(errorHandler)
 
-app.listen(port, (req, res) => {
+const httpServer = createServer(app)
+initializeRealtimeServer(httpServer)
+
+httpServer.listen(port, (req, res) => {
 	console.log(`server running on port ${port}`)
 })

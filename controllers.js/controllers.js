@@ -5,6 +5,10 @@ import nodemailer from 'nodemailer'
 import PDFDocument from 'pdfkit'
 import { Customer, Vessel, Ticket, Reminder, User } from '../models/models.js'
 import { createAuthToken } from '../middleware/auth.js'
+import {
+	emitConversationUpdated,
+	emitConversationUpdatedToAll,
+} from '../realtime.js'
 
 const sendError = (res, status, message) => {
 	res.status(status).json({ error: message })
@@ -47,6 +51,197 @@ const toPublicUser = (user) => ({
 	role: normalizeText(user?.role) || 'user',
 	createdAt: user?.createdAt,
 })
+
+const normalizeConversationMessage = (entry) => {
+	const senderName = normalizeText(entry?.senderName || entry?.sender)
+	const readByUserIds = Array.isArray(entry?.readByUserIds)
+		? entry.readByUserIds
+				.map((value) => normalizeText(value))
+				.filter(Boolean)
+		: []
+	return {
+		id: normalizeText(entry?.id) || randomUUID(),
+		senderId: normalizeText(entry?.senderId),
+		senderName: senderName || 'Unknown user',
+		recipientId: normalizeText(entry?.recipientId),
+		recipientName: normalizeText(entry?.recipientName),
+		text: normalizeText(entry?.text),
+		timestamp: entry?.timestamp || new Date().toISOString(),
+		readByUserIds,
+	}
+}
+
+const normalizeConversationMessages = (value) =>
+	Array.isArray(value)
+		? value
+				.map(normalizeConversationMessage)
+				.filter((entry) => normalizeText(entry.text))
+				.sort(
+					(a, b) =>
+						new Date(a.timestamp || 0).getTime() -
+						new Date(b.timestamp || 0).getTime(),
+				)
+		: []
+
+const getConversationModel = (type) => {
+	if (type === 'ticket') return Ticket
+	if (type === 'reminder') return Reminder
+	return null
+}
+
+const getConversationQuery = (type, entityId) =>
+	type === 'ticket' ? toTicketQuery(entityId) : toEntityQuery(entityId)
+
+const getConversationTitle = (type, record) =>
+	type === 'ticket'
+		? normalizeText(record?.service_title) || 'Untitled ticket'
+		: normalizeText(record?.title) || 'Untitled reminder'
+
+const getConversationSubtitle = (type, record) => {
+	if (type === 'ticket') {
+		const category = normalizeText(record?.service_category) || 'service'
+		const status = normalizeText(record?.status) || 'N/A'
+		return `${category} • ${status}`
+	}
+
+	const relatedType = normalizeText(record?.relatedTo?.type) || 'reminder'
+	const completionLabel = record?.completed ? 'completed' : 'open'
+	return `${relatedType} • ${completionLabel}`
+}
+
+const buildConversationRecord = (type, record) => {
+	const entityId = normalizeText(record?.id || record?._id)
+	return {
+		conversationId: `${type}:${entityId}`,
+		type,
+		entityId,
+		title: getConversationTitle(type, record),
+		subtitle: getConversationSubtitle(type, record),
+		sourceRouteName: type === 'ticket' ? 'Ticket' : 'Reminder',
+		archivedByUserIds: Array.isArray(record?.archivedByUserIds)
+			? record.archivedByUserIds
+					.map((entry) => normalizeText(entry))
+					.filter(Boolean)
+			: [],
+		messages: normalizeConversationMessages(record?.messages),
+	}
+}
+
+const buildConversationSummary = (type, record, authUserId = '') => {
+	const conversation = buildConversationRecord(type, record)
+	if (
+		authUserId &&
+		Array.isArray(conversation.archivedByUserIds) &&
+		conversation.archivedByUserIds.includes(normalizeText(authUserId))
+	) {
+		return null
+	}
+	if (!conversation.messages.length) return null
+
+	const lastMessage = conversation.messages[conversation.messages.length - 1]
+	const normalizedAuthUserId = normalizeText(authUserId)
+	const partnerNames = Array.from(
+		new Set(
+			conversation.messages
+				.filter(
+					(entry) =>
+						normalizeText(entry.senderId) !== normalizedAuthUserId,
+				)
+				.map((entry) => normalizeText(entry.senderName))
+				.filter(Boolean),
+		),
+	)
+	const unreadCount = normalizedAuthUserId
+		? conversation.messages.filter(
+				(entry) =>
+					normalizeText(entry.senderId) !== normalizedAuthUserId &&
+					!entry.readByUserIds.includes(normalizedAuthUserId),
+			).length
+		: 0
+
+	return {
+		conversationId: conversation.conversationId,
+		type: conversation.type,
+		entityId: conversation.entityId,
+		title: conversation.title,
+		subtitle: conversation.subtitle,
+		sourceRouteName: conversation.sourceRouteName,
+		partnerNames,
+		lastMessageAt: lastMessage?.timestamp || '',
+		lastMessagePreview: normalizeText(lastMessage?.text).slice(0, 140),
+		messageCount: conversation.messages.length,
+		unreadCount,
+		hasUnread: unreadCount > 0,
+	}
+}
+
+const collectConversationParticipantIds = (messages) =>
+	Array.from(
+		new Set(
+			normalizeConversationMessages(messages)
+				.flatMap((entry) => [entry.senderId, entry.recipientId])
+				.map((entry) => normalizeText(entry))
+				.filter(Boolean),
+		),
+	)
+
+const markConversationMessagesRead = (record, authUserId) => {
+	const normalizedAuthUserId = normalizeText(authUserId)
+	if (!normalizedAuthUserId) return false
+
+	let changed = false
+	record.messages = normalizeConversationMessages(record.messages).map(
+		(entry) => {
+			if (
+				entry.senderId === normalizedAuthUserId ||
+				entry.readByUserIds.includes(normalizedAuthUserId)
+			) {
+				return entry
+			}
+
+			changed = true
+			return {
+				...entry,
+				readByUserIds: [...entry.readByUserIds, normalizedAuthUserId],
+			}
+		},
+	)
+
+	return changed
+}
+
+const archiveConversationForUser = (record, authUserId) => {
+	const normalizedAuthUserId = normalizeText(authUserId)
+	if (!normalizedAuthUserId) return false
+
+	const archivedByUserIds = Array.isArray(record.archivedByUserIds)
+		? record.archivedByUserIds
+				.map((entry) => normalizeText(entry))
+				.filter(Boolean)
+		: []
+
+	if (archivedByUserIds.includes(normalizedAuthUserId)) {
+		return false
+	}
+
+	record.archivedByUserIds = [...archivedByUserIds, normalizedAuthUserId]
+	return true
+}
+
+const clearConversationArchiveForParticipants = (record, participantIds) => {
+	const activeParticipantIds = new Set(
+		participantIds.map((entry) => normalizeText(entry)).filter(Boolean),
+	)
+	const archivedByUserIds = Array.isArray(record.archivedByUserIds)
+		? record.archivedByUserIds
+				.map((entry) => normalizeText(entry))
+				.filter(Boolean)
+		: []
+
+	record.archivedByUserIds = archivedByUserIds.filter(
+		(entry) => !activeParticipantIds.has(entry),
+	)
+}
 
 const validatePassword = (password) => {
 	if (password.length < 8) {
@@ -269,6 +464,25 @@ const addCoverSectionToDossier = (
 		`Hull ID: ${normalizeText(vessel?.hullIdNumber) || 'N/A'}`,
 		`Service Records Included: ${serviceCount}`,
 	])
+
+	addH3(doc, 'Vessel Profile Photo')
+	const vesselPhotoBuffer = decodeDataUrlImage(vessel?.boatPhotoDataUrl)
+	if (vesselPhotoBuffer) {
+		ensureSpaceFor(doc, 260)
+		try {
+			doc.image(vesselPhotoBuffer, {
+				fit: [420, 240],
+				align: 'left',
+			})
+			doc.moveDown(0.35)
+		} catch {
+			addBullets(doc, [
+				'Vessel profile photo could not be rendered from the saved image data.',
+			])
+		}
+	} else {
+		addBullets(doc, ['No vessel profile photo on file.'])
+	}
 
 	addH3(doc, 'Report Purpose')
 	doc.fillColor('#0f172a').fontSize(11).text(reportPurpose, {
@@ -728,6 +942,367 @@ export const getAuthenticatedUser = async (req, res) => {
 	} catch (error) {
 		console.error('Failed to fetch authenticated user:', error)
 		sendError(res, 500, 'Failed to fetch authenticated user')
+	}
+}
+
+export const getUsers = async (req, res) => {
+	try {
+		const users = await User.find().sort({ name: 1 })
+		res.status(200).json(users.map(toPublicUser))
+	} catch (error) {
+		console.error('Failed to fetch users:', error)
+		sendError(res, 500, 'Failed to fetch users')
+	}
+}
+
+export const getConversationList = async (req, res) => {
+	try {
+		const authUserId = normalizeText(req.authUser?.userId)
+		const [tickets, reminders] = await Promise.all([
+			Ticket.find()
+				.select(
+					'id _id service_title service_category status scheduledDate messages',
+				)
+				.lean(),
+			Reminder.find()
+				.select('id _id title dueDate completed relatedTo messages')
+				.lean(),
+		])
+
+		const conversations = [
+			...tickets
+				.map((ticket) =>
+					buildConversationSummary('ticket', ticket, authUserId),
+				)
+				.filter(Boolean),
+			...reminders
+				.map((reminder) =>
+					buildConversationSummary('reminder', reminder, authUserId),
+				)
+				.filter(Boolean),
+		].sort(
+			(a, b) =>
+				new Date(b.lastMessageAt || 0).getTime() -
+				new Date(a.lastMessageAt || 0).getTime(),
+		)
+
+		res.status(200).json(conversations)
+	} catch (error) {
+		console.error('Failed to fetch conversations:', error)
+		sendError(res, 500, 'Failed to fetch conversations')
+	}
+}
+
+export const getConversation = async (req, res) => {
+	try {
+		const type = normalizeText(req.params.type).toLowerCase()
+		const entityId = normalizeText(req.params.id)
+		const model = getConversationModel(type)
+		if (!model) {
+			return sendError(
+				res,
+				400,
+				'Conversation type must be ticket or reminder',
+			)
+		}
+
+		const record = await model
+			.findOne(getConversationQuery(type, entityId))
+			.lean()
+		if (!record) {
+			return sendError(
+				res,
+				404,
+				`${type === 'ticket' ? 'Ticket' : 'Reminder'} not found`,
+			)
+		}
+
+		res.status(200).json(buildConversationRecord(type, record))
+	} catch (error) {
+		console.error('Failed to fetch conversation:', error)
+		sendError(res, 500, 'Failed to fetch conversation')
+	}
+}
+
+export const markConversationRead = async (req, res) => {
+	try {
+		const authUserId = normalizeText(req.authUser?.userId)
+		if (!authUserId) {
+			return sendError(res, 401, 'Authentication required')
+		}
+
+		const type = normalizeText(req.params.type).toLowerCase()
+		const entityId = normalizeText(req.params.id)
+		const model = getConversationModel(type)
+		if (!model) {
+			return sendError(
+				res,
+				400,
+				'Conversation type must be ticket or reminder',
+			)
+		}
+
+		const record = await model.findOne(getConversationQuery(type, entityId))
+		if (!record) {
+			return sendError(
+				res,
+				404,
+				`${type === 'ticket' ? 'Ticket' : 'Reminder'} not found`,
+			)
+		}
+
+		const changed = markConversationMessagesRead(record, authUserId)
+		if (changed) {
+			record.markModified('messages')
+			await record.save()
+		}
+
+		const conversation = buildConversationRecord(type, record.toObject())
+		if (changed) {
+			emitConversationUpdated(conversation, [authUserId])
+		}
+
+		res.status(200).json(conversation)
+	} catch (error) {
+		console.error('Failed to mark conversation as read:', error)
+		sendError(res, 500, 'Failed to mark conversation as read')
+	}
+}
+
+export const archiveConversation = async (req, res) => {
+	try {
+		const authUserId = normalizeText(req.authUser?.userId)
+		if (!authUserId) {
+			return sendError(res, 401, 'Authentication required')
+		}
+
+		const type = normalizeText(req.params.type).toLowerCase()
+		const entityId = normalizeText(req.params.id)
+		const model = getConversationModel(type)
+		if (!model) {
+			return sendError(
+				res,
+				400,
+				'Conversation type must be ticket or reminder',
+			)
+		}
+
+		const record = await model.findOne(getConversationQuery(type, entityId))
+		if (!record) {
+			return sendError(
+				res,
+				404,
+				`${type === 'ticket' ? 'Ticket' : 'Reminder'} not found`,
+			)
+		}
+
+		const changed = archiveConversationForUser(record, authUserId)
+		if (changed) {
+			record.markModified('archivedByUserIds')
+			await record.save()
+			emitConversationUpdated(
+				buildConversationRecord(type, record.toObject()),
+				[authUserId],
+			)
+		}
+
+		res.status(200).json({
+			archived: true,
+			conversationId: `${type}:${normalizeText(record.id || record._id)}`,
+		})
+	} catch (error) {
+		console.error('Failed to archive conversation:', error)
+		sendError(res, 500, 'Failed to archive conversation')
+	}
+}
+
+export const deleteConversationMessage = async (req, res) => {
+	try {
+		const type = normalizeText(req.params.type).toLowerCase()
+		const entityId = normalizeText(req.params.id)
+		const messageId = normalizeText(req.params.messageId)
+		const model = getConversationModel(type)
+		if (!model) {
+			return sendError(
+				res,
+				400,
+				'Conversation type must be ticket or reminder',
+			)
+		}
+
+		if (!messageId) {
+			return sendError(res, 400, 'Message id is required')
+		}
+
+		const record = await model.findOne(getConversationQuery(type, entityId))
+		if (!record) {
+			return sendError(
+				res,
+				404,
+				`${type === 'ticket' ? 'Ticket' : 'Reminder'} not found`,
+			)
+		}
+
+		const existingMessages = normalizeConversationMessages(record.messages)
+		const nextMessages = existingMessages.filter(
+			(entry) => entry.id !== messageId,
+		)
+
+		if (nextMessages.length === existingMessages.length) {
+			return sendError(res, 404, 'Message not found')
+		}
+
+		record.messages = nextMessages
+		if (!nextMessages.length) {
+			clearConversationArchiveForParticipants(
+				record,
+				collectConversationParticipantIds(existingMessages),
+			)
+			record.markModified('archivedByUserIds')
+		}
+		record.markModified('messages')
+		await record.save()
+
+		const conversation = buildConversationRecord(type, record.toObject())
+		emitConversationUpdatedToAll(conversation)
+
+		res.status(200).json({
+			deleted: true,
+			messageId,
+			conversation,
+		})
+	} catch (error) {
+		console.error('Failed to delete conversation message:', error)
+		sendError(res, 500, 'Failed to delete conversation message')
+	}
+}
+
+export const deleteConversation = async (req, res) => {
+	try {
+		const type = normalizeText(req.params.type).toLowerCase()
+		const entityId = normalizeText(req.params.id)
+		const model = getConversationModel(type)
+		if (!model) {
+			return sendError(
+				res,
+				400,
+				'Conversation type must be ticket or reminder',
+			)
+		}
+
+		const record = await model.findOne(getConversationQuery(type, entityId))
+		if (!record) {
+			return sendError(
+				res,
+				404,
+				`${type === 'ticket' ? 'Ticket' : 'Reminder'} not found`,
+			)
+		}
+
+		const participantIds = collectConversationParticipantIds(
+			record.messages,
+		)
+		record.messages = []
+		clearConversationArchiveForParticipants(record, participantIds)
+		record.markModified('messages')
+		record.markModified('archivedByUserIds')
+		await record.save()
+
+		emitConversationUpdatedToAll(
+			buildConversationRecord(type, record.toObject()),
+		)
+
+		res.status(200).json({
+			deleted: true,
+			conversationId: `${type}:${normalizeText(record.id || record._id)}`,
+		})
+	} catch (error) {
+		console.error('Failed to delete conversation:', error)
+		sendError(res, 500, 'Failed to delete conversation')
+	}
+}
+
+export const postConversationMessage = async (req, res) => {
+	try {
+		const authUserId = normalizeText(req.authUser?.userId)
+		if (!authUserId) {
+			return sendError(res, 401, 'Authentication required')
+		}
+
+		const type = normalizeText(req.params.type).toLowerCase()
+		const entityId = normalizeText(req.params.id)
+		const text = normalizeText(req.body?.text)
+		const model = getConversationModel(type)
+
+		if (!model) {
+			return sendError(
+				res,
+				400,
+				'Conversation type must be ticket or reminder',
+			)
+		}
+
+		if (!entityId) {
+			return sendError(res, 400, 'Conversation id is required')
+		}
+
+		if (!text) {
+			return sendError(res, 400, 'Message text is required')
+		}
+
+		const [senderUser, record] = await Promise.all([
+			User.findOne(toEntityQuery(authUserId)),
+			model.findOne(getConversationQuery(type, entityId)),
+		])
+
+		if (!senderUser) {
+			return sendError(res, 404, 'Sending user not found')
+		}
+
+		if (!record) {
+			return sendError(
+				res,
+				404,
+				`${type === 'ticket' ? 'Ticket' : 'Reminder'} not found`,
+			)
+		}
+
+		const nextMessage = {
+			id: randomUUID(),
+			senderId: normalizeText(senderUser.id || senderUser._id),
+			senderName:
+				normalizeText(senderUser.name) ||
+				normalizeEmail(senderUser.email),
+			recipientId: '',
+			recipientName: '',
+			sender:
+				normalizeText(senderUser.name) ||
+				normalizeEmail(senderUser.email),
+			text,
+			timestamp: new Date(),
+			readByUserIds: [normalizeText(senderUser.id || senderUser._id)],
+		}
+
+		clearConversationArchiveForParticipants(record, [
+			normalizeText(senderUser.id || senderUser._id),
+		])
+		record.messages = [
+			...normalizeConversationMessages(record.messages),
+			nextMessage,
+		]
+		record.markModified('messages')
+		record.markModified('archivedByUserIds')
+		await record.save()
+		const conversation = buildConversationRecord(type, record.toObject())
+		emitConversationUpdatedToAll(conversation)
+
+		res.status(201).json({
+			message: normalizeConversationMessage(nextMessage),
+			conversation,
+		})
+	} catch (error) {
+		console.error('Failed to send conversation message:', error)
+		sendError(res, 500, 'Failed to send conversation message')
 	}
 }
 

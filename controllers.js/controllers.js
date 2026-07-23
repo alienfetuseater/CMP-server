@@ -54,6 +54,210 @@ const splitLines = (value) => {
 		.filter(Boolean)
 }
 
+const interpolateTemplate = (template, variables) =>
+	normalizeText(template).replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, rawKey) => {
+		const key = normalizeText(rawKey)
+		const value = variables?.[key]
+		return normalizeText(value) || 'N/A'
+	})
+
+const getCompanyProfile = () => ({
+	name: normalizeText(process.env.COMPANY_NAME) || 'CMP Garage',
+	addressLines: splitLines(process.env.COMPANY_ADDRESS),
+	phone: normalizeText(process.env.COMPANY_PHONE),
+	email: normalizeText(process.env.COMPANY_EMAIL),
+})
+
+const decodeDataUrlImage = (dataUrl) => {
+	const raw = normalizeText(dataUrl)
+	const match = raw.match(/^data:image\/[a-zA-Z0-9+.-]+;base64,(.+)$/)
+	if (!match) return null
+
+	try {
+		return Buffer.from(match[1], 'base64')
+	} catch {
+		return null
+	}
+}
+
+const toPhotoList = (value) =>
+	Array.isArray(value)
+		? value
+				.map((entry) => ({
+					caption: normalizeText(entry?.name) || 'Ticket photo',
+					uploadedAt: entry?.uploadedAt,
+					buffer: decodeDataUrlImage(entry?.dataUrl),
+				}))
+				.filter((entry) => entry.buffer)
+		: []
+
+const pageBottom = (doc) => doc.page.height - doc.page.margins.bottom
+
+const ensureSpaceFor = (doc, minHeight) => {
+	if (doc.y + minHeight > pageBottom(doc)) {
+		doc.addPage()
+	}
+}
+
+const addH1 = (doc, text) => {
+	ensureSpaceFor(doc, 56)
+	doc.fillColor('#0b3a5b').fontSize(24).text(text)
+	doc.moveDown(0.2)
+	doc.strokeColor('#cbd5e1')
+		.lineWidth(1)
+		.moveTo(doc.page.margins.left, doc.y)
+		.lineTo(doc.page.width - doc.page.margins.right, doc.y)
+		.stroke()
+	doc.moveDown(0.55)
+}
+
+const addH2 = (doc, text) => {
+	ensureSpaceFor(doc, 46)
+	doc.fillColor('#12324a').fontSize(16).text(text)
+	doc.moveDown(0.08)
+	doc.strokeColor('#dbeafe')
+		.lineWidth(0.8)
+		.moveTo(doc.page.margins.left, doc.y)
+		.lineTo(doc.page.width - doc.page.margins.right, doc.y)
+		.stroke()
+	doc.moveDown(0.5)
+}
+
+const addH3 = (doc, text) => {
+	ensureSpaceFor(doc, 28)
+	doc.fillColor('#334155').fontSize(12).text(text)
+	doc.moveDown(0.28)
+}
+
+const addSectionBreak = (doc, size = 0.45) => {
+	ensureSpaceFor(doc, 18)
+	doc.moveDown(size)
+}
+
+const addBullets = (doc, items) => {
+	ensureSpaceFor(doc, 24)
+	doc.fillColor('#0f172a').fontSize(11)
+	if (!Array.isArray(items) || !items.length) {
+		doc.text('• None', { indent: 12 })
+		doc.moveDown(0.35)
+		return
+	}
+
+	items.forEach((item) => {
+		ensureSpaceFor(doc, 18)
+		doc.text(`• ${normalizeText(item) || 'N/A'}`, {
+			indent: 12,
+			lineGap: 1,
+		})
+	})
+	doc.moveDown(0.45)
+}
+
+const addPhotoSectionToPdf = (doc, title, photos) => {
+	addH3(doc, title)
+
+	if (!photos.length) {
+		addBullets(doc, ['No photos uploaded'])
+		doc.moveDown(0.5)
+		return
+	}
+
+	const maxImageWidth = 250
+	const maxImageHeight = 180
+
+	photos.forEach((photo, index) => {
+		const estimatedBlockHeight = maxImageHeight + 56
+		ensureSpaceFor(doc, estimatedBlockHeight)
+
+		doc.fillColor('#0f172a')
+			.fontSize(11)
+			.text(`• Photo ${index + 1}`)
+		doc.moveDown(0.15)
+		doc.image(photo.buffer, {
+			fit: [maxImageWidth, maxImageHeight],
+			align: 'left',
+		})
+		doc.moveDown(0.2)
+		addBullets(doc, [
+			`Caption: ${photo.caption}`,
+			`Uploaded: ${formatPdfDate(photo.uploadedAt || new Date())}`,
+		])
+		doc.moveDown(0.45)
+	})
+
+	doc.fillColor('#0f172a').fontSize(11)
+}
+
+const addCoverSectionToDossier = (
+	doc,
+	{ vesselName, vessel, customer, serviceCount },
+) => {
+	const dossierGeneratedAt = new Date()
+	const dossierGeneratedDate = formatPdfDate(dossierGeneratedAt)
+	const vesselRegistrationDate = formatPdfDate(vessel?.registrationDate)
+	const reportPurpose = interpolateTemplate(
+		"This document represents the service and maintenance history on record for {{vesselName}} as serviced and coordinated by Coastal Marine Pro between {{VESSEL REGISTRATION DATE}} and {{DATE OF DOSSIER GENERATION}}. It comprises all reports for service, maintenance and inspection and repairs across the vessel's systems, presented in chronological order. Records are maintained as the work is performed to support the vessel's condition, reliability, and resale value.",
+		{
+			vesselName,
+			'VESSEL REGISTRATION DATE': vesselRegistrationDate,
+			'DATE OF DOSSIER GENERATION': dossierGeneratedDate,
+		},
+	)
+
+	const companyProfile = getCompanyProfile()
+	const leftColumnX = doc.page.margins.left
+	const rightColumnX = doc.page.width - doc.page.margins.right - 220
+	const rightColumnY = doc.page.margins.top
+	const letterheadLines = [
+		companyProfile.name,
+		...companyProfile.addressLines,
+		companyProfile.phone ? `Phone: ${companyProfile.phone}` : '',
+		companyProfile.email ? `Email: ${companyProfile.email}` : '',
+	].filter(Boolean)
+
+	doc.fillColor('#0b3a5b')
+		.fontSize(12)
+		.text(companyProfile.name, rightColumnX, rightColumnY, {
+			width: 220,
+			align: 'right',
+		})
+
+	if (letterheadLines.length > 1) {
+		doc.fillColor('#334155').fontSize(10)
+		doc.text(
+			letterheadLines.slice(1).join('\n'),
+			rightColumnX,
+			rightColumnY + 16,
+			{
+				width: 220,
+				align: 'right',
+				lineGap: 2,
+			},
+		)
+	}
+
+	const letterheadHeight = 20 + Math.max(0, letterheadLines.length - 1) * 14
+	doc.y = Math.max(doc.y, doc.page.margins.top + letterheadHeight + 12)
+	doc.x = leftColumnX
+
+	addH1(doc, vesselName)
+	addH2(doc, 'Vessel Service Dossier')
+	addBullets(doc, [
+		`Generated: ${dossierGeneratedDate}`,
+		`Prepared For: ${normalizeText(customer?.name) || normalizeText(vessel?.customerName) || 'N/A'}`,
+		`Primary Contact: ${normalizeText(vessel?.customerPhone) || normalizeText(customer?.phone) || 'N/A'}`,
+		`Vessel: ${normalizeText(vessel?.vesselName) || 'N/A'}`,
+		`Hull ID: ${normalizeText(vessel?.hullIdNumber) || 'N/A'}`,
+		`Service Records Included: ${serviceCount}`,
+	])
+
+	addH3(doc, 'Report Purpose')
+	doc.fillColor('#0f172a').fontSize(11).text(reportPurpose, {
+		lineGap: 2,
+	})
+	doc.moveDown(0.45)
+}
+
 const formatDiagnosticFinding = (field, value) => {
 	const friendlyName = String(field || '')
 		.replace(/_/g, ' ')
@@ -252,68 +456,73 @@ const createVesselDossierPdfBuffer = ({ vessel, customer, tickets }) =>
 				)
 			: []
 
-		doc.fontSize(22).text(vesselName)
-		doc.moveDown(0.5)
-		doc.fontSize(11)
-			.fillColor('#334155')
-			.text('Vessel dossier')
-			.text(`Generated: ${formatPdfDate(new Date())}`)
-		doc.fillColor('black')
-		doc.moveDown()
+		addCoverSectionToDossier(doc, {
+			vesselName,
+			vessel,
+			customer,
+			serviceCount: vesselHistory.length,
+		})
 
-		doc.fontSize(14).text('Vessel Demographics')
-		doc.fontSize(11)
-		doc.text(`Vessel Name: ${vesselName}`)
-		doc.text(`Year: ${vesselYear || 'N/A'}`)
-		doc.text(`Make: ${vesselMake || 'N/A'}`)
-		doc.text(`Model: ${engineModel || 'N/A'}`)
-		doc.text(
-			`Owner: ${normalizeText(vessel?.owner) || normalizeText(customer?.name) || 'N/A'}`,
-		)
-		doc.text(
+		doc.addPage()
+
+		addH2(doc, 'Vessel Demographics')
+		addBullets(doc, [
+			`Vessel Name: ${vesselName}`,
+			`Year: ${vesselYear || 'N/A'}`,
+			`Make: ${vesselMake || 'N/A'}`,
+			`Model: ${engineModel || 'N/A'}`,
+			`Owner: ${normalizeText(customer?.name) || normalizeText(vessel?.customerName) || 'N/A'}`,
+			`Registration Date: ${formatPdfDate(vessel?.registrationDate)}`,
 			`Customer / Primary Contact: ${normalizeText(customer?.name) || 'N/A'}`,
-		)
-		doc.text(
 			`Phone: ${normalizeText(vessel?.customerPhone) || normalizeText(customer?.phone) || 'N/A'}`,
-		)
-		doc.text(`Email: ${normalizeText(customer?.email) || 'N/A'}`)
-		doc.text(`Address: ${normalizeText(customer?.address) || 'N/A'}`)
-		doc.text(`Hull ID: ${normalizeText(vessel?.hullIdNumber) || 'N/A'}`)
-		doc.text(
+			`Email: ${normalizeText(customer?.email) || 'N/A'}`,
+			`Address: ${normalizeText(customer?.address) || 'N/A'}`,
+			`Hull ID: ${normalizeText(vessel?.hullIdNumber) || 'N/A'}`,
 			`Number of Engines: ${normalizeText(vessel?.numberOfEngines) || 'N/A'}`,
-		)
-		doc.text(`Engine Make: ${engineMake || 'N/A'}`)
-		doc.text(`Engine Model: ${engineModel || 'N/A'}`)
-		doc.text(
+			`Engine Make: ${engineMake || 'N/A'}`,
+			`Engine Model: ${engineModel || 'N/A'}`,
 			`Engine Horsepower: ${normalizeText(vessel?.engineHorsepower) || 'N/A'}`,
-		)
-		doc.text(`Engine Hours: ${engineHours || 'N/A'}`)
-		doc.text(`Generator: ${vessel?.generator ? 'Yes' : 'No'}`)
-		doc.text(
+			`Engine Hours: ${engineHours || 'N/A'}`,
+			`Generator: ${vessel?.generator ? 'Yes' : 'No'}`,
 			`Boat Location: ${normalizeText(vessel?.boatLocation) || 'N/A'}`,
-		)
+		])
 		const serialNumbers = Array.isArray(vessel?.engineSerialNumbers)
 			? vessel.engineSerialNumbers
 					.map((serialNumber) => normalizeText(serialNumber))
 					.filter(Boolean)
 			: []
-		doc.text(
+		addBullets(doc, [
 			`Engine Serial Numbers: ${serialNumbers.length ? serialNumbers.join(', ') : 'N/A'}`,
-		)
-		doc.moveDown()
+		])
+		addSectionBreak(doc, 0.55)
 
-		doc.fontSize(14).text('Chronological Service History')
-		doc.fontSize(11)
+		addH2(doc, 'Chronological Service History')
 		if (!vesselHistory.length) {
-			doc.text('No service history found for this vessel.')
+			addBullets(doc, ['No service history found for this vessel.'])
 		} else {
 			vesselHistory.forEach((ticket, index) => {
-				doc.moveDown(0.5)
-				doc.fontSize(12).text(
-					`${index + 1}. ${formatPdfDate(ticket.scheduledDate)} - ${normalizeText(ticket.service_category) || 'service'} - ${normalizeText(ticket.service_title) || 'Untitled ticket'}`,
+				if (index > 0) {
+					ensureSpaceFor(doc, 20)
+					doc.strokeColor('#e2e8f0')
+						.lineWidth(0.7)
+						.moveTo(doc.page.margins.left, doc.y)
+						.lineTo(doc.page.width - doc.page.margins.right, doc.y)
+						.stroke()
+					doc.moveDown(0.65)
+				}
+
+				ensureSpaceFor(doc, 120)
+				addSectionBreak(doc, 0.25)
+				addH2(
+					doc,
+					`${index + 1}. ${normalizeText(ticket.service_title) || 'Untitled ticket'}`,
 				)
-				doc.fontSize(11)
-				doc.text(`Status: ${normalizeText(ticket.status) || 'N/A'}`)
+				addBullets(doc, [
+					`Date: ${formatPdfDate(ticket.scheduledDate)}`,
+					`Category: ${normalizeText(ticket.service_category) || 'service'}`,
+					`Status: ${normalizeText(ticket.status) || 'N/A'}`,
+				])
+				addSectionBreak(doc, 0.7)
 
 				const diagnosticEntries = Object.entries(
 					ticket.diagnostics || {},
@@ -324,42 +533,66 @@ const createVesselDossierPdfBuffer = ({ vessel, customer, tickets }) =>
 						normalizeText(value) !== 'N/A',
 				)
 				if (diagnosticEntries.length) {
-					doc.text('Abnormal Findings:')
-					diagnosticEntries.forEach(([field, value]) => {
-						doc.text(`  - ${formatDiagnosticFinding(field, value)}`)
-					})
+					addH3(doc, 'Abnormal Findings')
+					addBullets(
+						doc,
+						diagnosticEntries.map(([field, value]) =>
+							formatDiagnosticFinding(field, value),
+						),
+					)
 				} else {
-					doc.text('Abnormal Findings: None recorded')
+					addH3(doc, 'Abnormal Findings')
+					addBullets(doc, ['None recorded'])
 				}
+				addSectionBreak(doc)
 
 				const noteEntries = splitHistoryNotes(ticket.notes)
 				if (noteEntries.length) {
-					doc.text('Notes:')
-					noteEntries.forEach((entry) => {
-						doc.text(`  - ${entry}`)
-					})
+					addH3(doc, 'Notes')
+					addBullets(doc, noteEntries)
 				} else {
-					doc.text('Notes: None recorded')
+					addH3(doc, 'Notes')
+					addBullets(doc, ['None recorded'])
 				}
+				addSectionBreak(doc)
 
-				doc.text('Work Done:')
-				doc.text(
+				addH3(doc, 'Initial Assessment')
+				addBullets(doc, [
+					normalizeText(ticket.initialAssessment) ||
+						'No initial assessment provided.',
+				])
+				addPhotoSectionToPdf(
+					doc,
+					'Initial Assessment Photos',
+					toPhotoList(ticket.initialAssessmentPhotos),
+				)
+				addSectionBreak(doc)
+
+				addH3(doc, 'Work Done')
+				addBullets(doc, [
 					normalizeText(ticket.summaryOfWorkPerformed) ||
 						'No work performed summary provided.',
+				])
+				addPhotoSectionToPdf(
+					doc,
+					'Work Done Photos',
+					toPhotoList(ticket.summaryOfWorkPerformedPhotos),
 				)
+				addSectionBreak(doc)
 
-				doc.text('Work Recommended:')
-				doc.text(
+				addH3(doc, 'Work Recommended')
+				addBullets(doc, [
 					normalizeText(ticket.summaryOfFurtherRecommendations) ||
 						normalizeText(ticket.recommendedService) ||
 						'No work recommendation provided.',
-				)
+				])
 
-				doc.text('Final Assessment:')
-				doc.text(
+				addH3(doc, 'Final Assessment')
+				addBullets(doc, [
 					normalizeText(ticket.summaryOfWorkPerformed) ||
 						'No final assessment provided.',
-				)
+				])
+				addSectionBreak(doc, 0.6)
 			})
 		}
 

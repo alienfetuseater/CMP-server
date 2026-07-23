@@ -168,6 +168,7 @@ const vesselSchema = new Schema(
 		engineModel: { type: String, required: true },
 		engineHorsepower: { type: Number, required: true },
 		engineHours: { type: Number, required: true },
+		registrationDate: { type: Date, default: Date.now },
 	},
 	{ collection: 'BoatsCollection' },
 )
@@ -215,6 +216,17 @@ const requiredPartItemSchema = new Schema(
 		id: { type: String, required: true },
 		text: { type: String, required: true },
 		completed: { type: Boolean, default: false },
+		cost: { type: Number, default: 0 },
+	},
+	{ _id: false },
+)
+
+const ticketPhotoAttachmentSchema = new Schema(
+	{
+		id: { type: String, required: true },
+		name: { type: String, required: true },
+		uploadedAt: { type: Date, required: true },
+		dataUrl: { type: String, required: true },
 	},
 	{ _id: false },
 )
@@ -258,8 +270,17 @@ const ticketSchema = new Schema(
 		scheduledDate: { type: Date, required: true },
 		notes: { type: String, default: '' },
 		initialAssessment: { type: String, default: '' },
+		initialAssessmentPhotos: {
+			type: [ticketPhotoAttachmentSchema],
+			default: [],
+		},
 		recommendedService: { type: String, default: '' },
 		summaryOfWorkPerformed: { type: String, default: '' },
+		summaryOfWorkPerformedPhotos: {
+			type: [ticketPhotoAttachmentSchema],
+			default: [],
+		},
+		laborCost: { type: Number, default: 0 },
 		summaryOfFurtherRecommendations: { type: String, default: '' },
 		planOfAction: { type: [planActionItemSchema], default: [] },
 		requiredParts: { type: [requiredPartItemSchema], default: [] },

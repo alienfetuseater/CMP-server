@@ -1,4 +1,33 @@
 @host = http://localhost:8000/api/CMPGarage
+@authToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkY2M0OWVmNi03ZTZhLTQ2YmQtYTVlNS1kOTdlYzQ1NjQyNTciLCJlbWFpbCI6ImFsaWVuZmV0dXNlYXRlckBnbWFpbC5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc4NDc3NzEzNSwiZXhwIjoxNzg1MzgxOTM1fQ.e1_zdtwsi3j_MuqLoUcqZA_-h8Q9tLzr7GDNKS8VgeU
+
+
+############################################################
+# AUTH ROUTES
+############################################################
+
+### Register user
+POST {{host}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "mkaepernik",
+  "email": "alienfetuseater@gmail.com",
+  "password": "MY1house"
+}
+
+### Login user
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@example.com",
+  "password": "ChangeMe123!"
+}
+
+### Get authenticated user (requires token)
+GET {{host}}/auth/me
+Authorization: Bearer {{authToken}}
 
 
 ############################################################
@@ -8,6 +37,7 @@
 ### Create Customer
 POST {{host}}/newCustomer
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "name": "Robert Hayes",
@@ -23,19 +53,23 @@ Content-Type: application/json
 
 ### Search for customers with the name "John"
 GET {{host}}/searchCustomers?name=mike
+Authorization: Bearer {{authToken}}
 
 # this customer_id was copied from the results of the previous request to be used in the following request
 @customer_id = 6a56db24cb9b49d3356fdcd8
 
 ### Get Customer Profile for the chosen result
 GET {{host}}/getCustomerProfile?id={{customer_id}}
+Authorization: Bearer {{authToken}}
 
 ### Get all customers
 GET {{host}}/getAllCustomers
+Authorization: Bearer {{authToken}}
 
 ### Create New Vessel
 POST {{host}}/newBoat
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "customerId": "66c0a1f9e3b4a9c2d4fab666",
@@ -61,13 +95,16 @@ Content-Type: application/json
 
 ### search for vessels with the name "Sea Ray"
 GET {{host}}/searchVessels?name=Sea Ray
+Authorization: Bearer {{authToken}}
 
 ### return all vessels
 GET {{host}}/getAllBoats
+Authorization: Bearer {{authToken}}
 
 ### submit new todo
 POST {{host}}/newTodo
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "title": "Prepare inspection report",
@@ -81,10 +118,12 @@ Content-Type: application/json
 
 ### get all todos
 GET {{host}}/getAllTodos
+Authorization: Bearer {{authToken}}
 
 ### post new ticket
 POST {{host}}/newTicket
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "customerId": "66c0a1f9e3b4a9c2d4f33333",
@@ -138,3 +177,4 @@ Content-Type: application/json
 
 ### get all tickets
 GET {{host}}/getAllTickets
+Authorization: Bearer {{authToken}}

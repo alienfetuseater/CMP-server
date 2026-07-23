@@ -1,8 +1,10 @@
 import { randomUUID } from 'crypto'
+import bcrypt from 'bcryptjs'
 import mongoose from 'mongoose'
 import nodemailer from 'nodemailer'
 import PDFDocument from 'pdfkit'
-import { Customer, Vessel, Ticket, Reminder } from '../models/models.js'
+import { Customer, Vessel, Ticket, Reminder, User } from '../models/models.js'
+import { createAuthToken } from '../middleware/auth.js'
 
 const sendError = (res, status, message) => {
 	res.status(status).json({ error: message })
@@ -34,6 +36,23 @@ const formatPdfDate = (value) => {
 const normalizeText = (value) => {
 	if (value === undefined || value === null) return ''
 	return String(value).trim()
+}
+
+const normalizeEmail = (value) => normalizeText(value).toLowerCase()
+
+const toPublicUser = (user) => ({
+	id: normalizeText(user?.id || user?._id),
+	name: normalizeText(user?.name),
+	email: normalizeEmail(user?.email),
+	role: normalizeText(user?.role) || 'user',
+	createdAt: user?.createdAt,
+})
+
+const validatePassword = (password) => {
+	if (password.length < 8) {
+		return 'Password must be at least 8 characters long'
+	}
+	return ''
 }
 
 const splitHistoryNotes = (value) => {
@@ -598,6 +617,119 @@ const createVesselDossierPdfBuffer = ({ vessel, customer, tickets }) =>
 
 		doc.end()
 	})
+
+export const registerUser = async (req, res) => {
+	try {
+		const name = normalizeText(req.body?.name)
+		const email = normalizeEmail(req.body?.email)
+		const password = normalizeText(req.body?.password)
+
+		if (!name || !email || !password) {
+			return sendError(res, 400, 'Name, email, and password are required')
+		}
+
+		const passwordError = validatePassword(password)
+		if (passwordError) {
+			return sendError(res, 400, passwordError)
+		}
+
+		const existing = await User.findOne({ email })
+		if (existing) {
+			return sendError(
+				res,
+				409,
+				'An account already exists for this email',
+			)
+		}
+
+		const passwordHash = await bcrypt.hash(password, 12)
+		const user = await User.create({
+			id: randomUUID(),
+			name,
+			email,
+			passwordHash,
+		})
+
+		const publicUser = toPublicUser(user)
+		const token = createAuthToken({
+			userId: publicUser.id,
+			email: publicUser.email,
+			role: publicUser.role,
+		})
+
+		res.status(201).json({ token, user: publicUser })
+	} catch (error) {
+		console.error('Failed to register user:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		const isConfigError = message.includes('JWT_SECRET')
+		if (isConfigError) {
+			return sendError(res, 500, message)
+		}
+
+		sendError(res, 500, message || 'Failed to register user')
+	}
+}
+
+export const loginUser = async (req, res) => {
+	try {
+		const email = normalizeEmail(req.body?.email)
+		const password = normalizeText(req.body?.password)
+
+		if (!email || !password) {
+			return sendError(res, 400, 'Email and password are required')
+		}
+
+		const user = await User.findOne({ email }).select('+passwordHash')
+		if (!user) {
+			return sendError(res, 401, 'Invalid email or password')
+		}
+
+		const isValidPassword = await bcrypt.compare(
+			password,
+			user.passwordHash,
+		)
+		if (!isValidPassword) {
+			return sendError(res, 401, 'Invalid email or password')
+		}
+
+		const publicUser = toPublicUser(user)
+		const token = createAuthToken({
+			userId: publicUser.id,
+			email: publicUser.email,
+			role: publicUser.role,
+		})
+
+		res.status(200).json({ token, user: publicUser })
+	} catch (error) {
+		console.error('Failed to login user:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		const isConfigError = message.includes('JWT_SECRET')
+		if (isConfigError) {
+			return sendError(res, 500, message)
+		}
+
+		sendError(res, 500, message || 'Failed to login user')
+	}
+}
+
+export const getAuthenticatedUser = async (req, res) => {
+	try {
+		const authUserId = normalizeText(req.authUser?.userId)
+		if (!authUserId) {
+			return sendError(res, 401, 'Authentication required')
+		}
+
+		const user = await User.findOne(toEntityQuery(authUserId))
+		if (!user) {
+			return sendError(res, 404, 'Authenticated user not found')
+		}
+
+		res.status(200).json({ user: toPublicUser(user) })
+	} catch (error) {
+		console.error('Failed to fetch authenticated user:', error)
+		sendError(res, 500, 'Failed to fetch authenticated user')
+	}
+}
 
 export const searchCustomersByName = async (req, res) => {
 	try {

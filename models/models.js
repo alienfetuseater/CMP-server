@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { randomUUID } from 'crypto'
 
 const { Schema } = mongoose
 
@@ -291,8 +292,38 @@ const ticketSchema = new Schema(
 	{ collection: 'TicketsCollection' },
 )
 
+// -------------------- User --------------------
+const userSchema = new Schema(
+	{
+		id: {
+			type: String,
+			default: () => randomUUID(),
+			unique: true,
+			index: true,
+		},
+		name: { type: String, required: true, trim: true },
+		email: {
+			type: String,
+			required: true,
+			trim: true,
+			lowercase: true,
+			unique: true,
+			index: true,
+		},
+		passwordHash: { type: String, required: true, select: false },
+		role: {
+			type: String,
+			enum: ['admin', 'user'],
+			default: 'user',
+		},
+		createdAt: { type: Date, default: Date.now },
+	},
+	{ collection: 'UsersCollection' },
+)
+
 // -------------------- Exports --------------------
 export const Customer = mongoose.model('Customer', customerSchema)
 export const Vessel = mongoose.model('Vessel', vesselSchema)
 export const Reminder = mongoose.model('Reminder', reminderSchema)
 export const Ticket = mongoose.model('Ticket', ticketSchema)
+export const User = mongoose.model('User', userSchema)

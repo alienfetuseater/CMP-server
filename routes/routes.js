@@ -1,5 +1,8 @@
 import express from 'express'
 import {
+	registerUser,
+	loginUser,
+	getAuthenticatedUser,
 	searchCustomersByName,
 	searchVesselByName,
 	getCustomerProfile,
@@ -27,8 +30,15 @@ import {
 	deleteTicket,
 	deleteReminder,
 } from '../controllers.js/controllers.js'
+import { requireAuth } from '../middleware/auth.js'
 
 const router = express.Router()
+
+router.post('/auth/register', registerUser)
+router.post('/auth/login', loginUser)
+router.get('/auth/me', requireAuth, getAuthenticatedUser)
+
+router.use(requireAuth)
 
 router.get('/searchCustomers', searchCustomersByName)
 router.get('/searchVessels', searchVesselByName)

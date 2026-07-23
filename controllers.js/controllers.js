@@ -44,6 +44,60 @@ const normalizeText = (value) => {
 
 const normalizeEmail = (value) => normalizeText(value).toLowerCase()
 
+const normalizePhoneDigits = (value) => normalizeText(value).replace(/\D/g, '')
+
+const escapeRegex = (value) =>
+	normalizeText(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const findCustomerForVessel = async (vessel) => {
+	if (!vessel) return null
+
+	const candidateIds = [
+		normalizeText(vessel.customerId),
+		normalizeText(vessel.owner),
+	].filter(Boolean)
+
+	for (const candidateId of candidateIds) {
+		const byId = await Customer.findOne(toEntityQuery(candidateId)).lean()
+		if (byId) return byId
+	}
+
+	const vesselName = normalizeText(vessel.customerName)
+	const vesselPhoneDigits = normalizePhoneDigits(vessel.customerPhone)
+
+	if (vesselName) {
+		const byName = await Customer.find({
+			name: { $regex: new RegExp(`^${escapeRegex(vesselName)}$`, 'i') },
+		})
+			.limit(10)
+			.lean()
+
+		if (vesselPhoneDigits) {
+			const exactByNameAndPhone = byName.find(
+				(entry) =>
+					normalizePhoneDigits(entry.phone) === vesselPhoneDigits,
+			)
+			if (exactByNameAndPhone) return exactByNameAndPhone
+		}
+
+		if (byName.length === 1) {
+			return byName[0]
+		}
+	}
+
+	if (vesselPhoneDigits) {
+		const byPhone = await Customer.find()
+			.select('name phone email address createdAt')
+			.lean()
+		const exactByPhone = byPhone.find(
+			(entry) => normalizePhoneDigits(entry.phone) === vesselPhoneDigits,
+		)
+		if (exactByPhone) return exactByPhone
+	}
+
+	return null
+}
+
 const toPublicUser = (user) => ({
 	id: normalizeText(user?.id || user?._id),
 	name: normalizeText(user?.name),
@@ -499,6 +553,365 @@ const formatDiagnosticFinding = (field, value) => {
 	return `${friendlyName}: ${normalizeText(value) || 'N/A'}`
 }
 
+const formatPdfDateShort = (value) => {
+	if (!value) return 'N/A'
+	const date = new Date(value)
+	if (Number.isNaN(date.getTime())) return 'N/A'
+	return date.toLocaleDateString(undefined, {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+	})
+}
+
+const formatDateRangeLabel = (records) => {
+	if (!Array.isArray(records) || !records.length) return 'N/A'
+
+	const normalizedDates = records
+		.map(
+			(record) =>
+				new Date(record?.scheduledDate || record?.createdAt || 0),
+		)
+		.filter((date) => !Number.isNaN(date.getTime()))
+		.sort((a, b) => a.getTime() - b.getTime())
+
+	if (!normalizedDates.length) return 'N/A'
+	if (normalizedDates.length === 1) {
+		return formatPdfDateShort(normalizedDates[0])
+	}
+
+	return `${formatPdfDateShort(normalizedDates[0])} - ${formatPdfDateShort(normalizedDates[normalizedDates.length - 1])}`
+}
+
+const normalizeForComparison = (value) => normalizeText(value).toLowerCase()
+
+const getDossierEntryType = (ticket) => {
+	const category = normalizeForComparison(ticket?.service_category)
+	const title = normalizeForComparison(ticket?.service_title)
+
+	if (category.includes('diagnostic') || title.includes('diagnostic')) {
+		return 'DIAGNOSTIC'
+	}
+	if (category.includes('repair') || title.includes('repair')) {
+		return 'REPAIR'
+	}
+	if (category.includes('maintenance') || title.includes('maintenance')) {
+		return 'MAINTENANCE'
+	}
+	if (category.includes('upgrade') || title.includes('upgrade')) {
+		return 'UPGRADE'
+	}
+
+	return 'SERVICE'
+}
+
+const getDossierEntryTheme = (entryType) => {
+	if (entryType === 'DIAGNOSTIC') {
+		return { accent: '#f97316', soft: '#fff7ed', text: '#9a3412' }
+	}
+	if (entryType === 'REPAIR') {
+		return { accent: '#f59e0b', soft: '#fffbeb', text: '#92400e' }
+	}
+	if (entryType === 'MAINTENANCE') {
+		return { accent: '#2563eb', soft: '#eff6ff', text: '#1e40af' }
+	}
+	if (entryType === 'UPGRADE') {
+		return { accent: '#0ea5e9', soft: '#ecfeff', text: '#0c4a6e' }
+	}
+
+	return { accent: '#475569', soft: '#f8fafc', text: '#334155' }
+}
+
+const getTicketDiagnosticFindings = (ticket) =>
+	Object.entries(ticket?.diagnostics || {})
+		.filter(([, value]) => {
+			const normalizedValue = normalizeForComparison(value)
+			return (
+				normalizedValue &&
+				normalizedValue !== 'n/a' &&
+				normalizedValue !== 'good' &&
+				normalizedValue !== 'normal' &&
+				normalizedValue !== 'ok'
+			)
+		})
+		.map(([field, value]) => formatDiagnosticFinding(field, value))
+
+const addDossierFooter = (doc, companyProfile) => {
+	const originalX = doc.x
+	const originalY = doc.y
+	const left = doc.page.margins.left
+	const right = doc.page.width - doc.page.margins.right
+	const footerY = doc.page.height - doc.page.margins.bottom - 20
+	const locationLine = companyProfile.addressLines.length
+		? companyProfile.addressLines.join(' / ')
+		: ''
+
+	doc.save()
+	doc.strokeColor('#cbd5e1')
+		.lineWidth(0.7)
+		.moveTo(left, footerY - 8)
+		.lineTo(right, footerY - 8)
+		.stroke()
+
+	doc.font('Helvetica-Bold')
+		.fontSize(8)
+		.fillColor('#0f172a')
+		.text(companyProfile.name, left, footerY, { lineBreak: false })
+
+	doc.font('Helvetica')
+		.fontSize(7)
+		.fillColor('#475569')
+		.text(locationLine || 'Vessel marine service', left, footerY + 10, {
+			lineBreak: false,
+		})
+
+	doc.font('Helvetica')
+		.fontSize(7)
+		.fillColor('#b45309')
+		.text('DOCUMENTED. MAINTAINED. READY.', left, footerY, {
+			width: right - left,
+			align: 'right',
+			lineBreak: false,
+		})
+	doc.restore()
+	doc.x = originalX
+	doc.y = originalY
+}
+
+const drawServiceTimelineTable = (
+	doc,
+	history,
+	fallbackEngineHours = 'N/A',
+) => {
+	const left = doc.page.margins.left
+	const width =
+		doc.page.width - doc.page.margins.left - doc.page.margins.right
+	const columns = [
+		{ label: 'VISIT', widthRatio: 0.43 },
+		{ label: 'DATE', widthRatio: 0.18 },
+		{ label: 'TYPE', widthRatio: 0.15 },
+		{ label: 'HOURS', widthRatio: 0.1 },
+		{ label: 'STATUS', widthRatio: 0.14 },
+	]
+	const columnWidths = columns.map((column) =>
+		Math.floor(width * column.widthRatio),
+	)
+	columnWidths[columnWidths.length - 1] +=
+		width - columnWidths.reduce((sum, entry) => sum + entry, 0)
+
+	const drawHeader = () => {
+		ensureSpaceFor(doc, 42)
+		doc.font('Helvetica-Bold').fontSize(8).fillColor('#64748b')
+		let currentX = left
+		columns.forEach((column, index) => {
+			doc.text(column.label, currentX + 4, doc.y, {
+				width: columnWidths[index] - 8,
+				lineBreak: false,
+			})
+			currentX += columnWidths[index]
+		})
+		doc.y += 12
+		doc.strokeColor('#cbd5e1')
+			.lineWidth(0.8)
+			.moveTo(left, doc.y)
+			.lineTo(left + width, doc.y)
+			.stroke()
+		doc.y += 8
+	}
+
+	drawHeader()
+
+	if (!history.length) {
+		doc.font('Helvetica')
+			.fontSize(10)
+			.fillColor('#334155')
+			.text('No documented services yet.')
+		doc.moveDown(0.4)
+		return
+	}
+
+	history.forEach((ticket) => {
+		const entryType = getDossierEntryType(ticket)
+		const rowValues = [
+			normalizeText(ticket?.service_title) || 'Untitled service',
+			formatPdfDateShort(ticket?.scheduledDate || ticket?.createdAt),
+			entryType,
+			normalizeText(
+				ticket?.engineHours ||
+					ticket?.hoursLogged ||
+					fallbackEngineHours ||
+					'N/A',
+			),
+			normalizeText(ticket?.status || entryType),
+		]
+
+		const textHeights = rowValues.map((value, index) =>
+			doc.heightOfString(value, {
+				width: columnWidths[index] - 10,
+				align: 'left',
+			}),
+		)
+		const rowHeight = Math.max(
+			22,
+			...textHeights.map((height) => height + 6),
+		)
+
+		if (doc.y + rowHeight + 18 > pageBottom(doc)) {
+			doc.addPage()
+			drawHeader()
+		}
+
+		let currentX = left
+		doc.font('Helvetica').fontSize(9).fillColor('#0f172a')
+		rowValues.forEach((value, index) => {
+			doc.text(value, currentX + 4, doc.y + 2, {
+				width: columnWidths[index] - 8,
+				lineGap: 1,
+			})
+			currentX += columnWidths[index]
+		})
+
+		doc.y += rowHeight
+		doc.strokeColor('#e2e8f0')
+			.lineWidth(0.6)
+			.moveTo(left, doc.y)
+			.lineTo(left + width, doc.y)
+			.stroke()
+		doc.y += 6
+	})
+
+	doc.moveDown(0.4)
+}
+
+const addDetailCardLine = (doc, label, body, width) => {
+	const safeBody = normalizeText(body) || 'Not documented.'
+	doc.font('Helvetica-Bold').fontSize(8).fillColor('#0f172a').text(label, {
+		width,
+		lineGap: 1,
+	})
+	doc.font('Helvetica').fontSize(9).fillColor('#1e293b').text(safeBody, {
+		width,
+		lineGap: 2,
+	})
+	doc.moveDown(0.3)
+}
+
+const drawDetailedServiceCards = (doc, history) => {
+	const left = doc.page.margins.left
+	const width =
+		doc.page.width - doc.page.margins.left - doc.page.margins.right
+
+	if (!history.length) {
+		doc.font('Helvetica')
+			.fontSize(10)
+			.fillColor('#334155')
+			.text('No detailed service records found.')
+		return
+	}
+
+	history.forEach((ticket) => {
+		const entryType = getDossierEntryType(ticket)
+		const theme = getDossierEntryTheme(entryType)
+		const findings = getTicketDiagnosticFindings(ticket)
+		const reportedConcern =
+			normalizeText(ticket?.initialAssessment) ||
+			normalizeText(ticket?.notes) ||
+			'No concern was documented for this visit.'
+		const workPerformed =
+			normalizeText(ticket?.summaryOfWorkPerformed) ||
+			normalizeText(ticket?.recommendedService) ||
+			'No work summary was documented for this visit.'
+		const recommendation =
+			normalizeText(ticket?.summaryOfFurtherRecommendations) ||
+			normalizeText(ticket?.recommendedService) ||
+			'No additional recommendations were documented.'
+
+		const tempMeasureDoc = new PDFDocument({ margin: 0 })
+		const estimateLineHeight = (text, fontSize = 9) => {
+			tempMeasureDoc.font('Helvetica').fontSize(fontSize)
+			return tempMeasureDoc.heightOfString(text, {
+				width: width - 34,
+				lineGap: 2,
+			})
+		}
+
+		const findingsText = findings.length
+			? findings.join(' | ')
+			: 'No abnormal findings recorded.'
+		const estimatedBodyHeight =
+			estimateLineHeight(reportedConcern) +
+			estimateLineHeight(findingsText) +
+			estimateLineHeight(workPerformed) +
+			estimateLineHeight(recommendation) +
+			140
+
+		ensureSpaceFor(doc, Math.max(190, estimatedBodyHeight))
+
+		const cardTop = doc.y
+		doc.save()
+		doc.roundedRect(
+			left,
+			cardTop,
+			width,
+			Math.max(190, estimatedBodyHeight),
+			8,
+		).fillAndStroke('#ffffff', '#dbeafe')
+		doc.restore()
+
+		doc.save()
+		doc.rect(left, cardTop, width, 28).fill('#f8fafc')
+		doc.restore()
+
+		doc.font('Helvetica-Bold')
+			.fontSize(11)
+			.fillColor('#0f172a')
+			.text(
+				normalizeText(ticket?.service_title) ||
+					'Untitled service record',
+				left + 12,
+				cardTop + 8,
+				{ width: width - 130, lineBreak: false },
+			)
+
+		const badgeWidth = 88
+		doc.save()
+		doc.roundedRect(
+			left + width - badgeWidth - 12,
+			cardTop + 6,
+			badgeWidth,
+			16,
+			3,
+		).fill(theme.soft)
+		doc.restore()
+		doc.font('Helvetica-Bold')
+			.fontSize(7)
+			.fillColor(theme.text)
+			.text(entryType, left + width - badgeWidth - 12, cardTop + 10, {
+				width: badgeWidth,
+				align: 'center',
+				lineBreak: false,
+			})
+
+		doc.font('Helvetica')
+			.fontSize(8)
+			.fillColor('#475569')
+			.text(
+				`${formatPdfDateShort(ticket?.scheduledDate || ticket?.createdAt)} | ${normalizeText(ticket?.priority) || 'standard priority'}`,
+				left + 12,
+				cardTop + 32,
+				{ width: width - 24 },
+			)
+
+		doc.y = cardTop + 48
+		addDetailCardLine(doc, 'Reported concern', reportedConcern, width - 24)
+		addDetailCardLine(doc, 'Findings', findingsText, width - 24)
+		addDetailCardLine(doc, 'Work performed', workPerformed, width - 24)
+		addDetailCardLine(doc, 'Recommendations', recommendation, width - 24)
+
+		doc.y = cardTop + Math.max(190, estimatedBodyHeight) + 10
+	})
+}
+
 const createEmailTransporter = () => {
 	const MAIL_HOST = normalizeText(process.env.MAIL_HOST)
 	const MAIL_PORT = normalizeText(process.env.MAIL_PORT)
@@ -552,6 +965,15 @@ const createEmailTransporter = () => {
 	}
 }
 
+const formatCurrencyUsd = (value) => {
+	const numeric = Number(value)
+	const safe = Number.isFinite(numeric) && numeric > 0 ? numeric : 0
+	return new Intl.NumberFormat('en-US', {
+		style: 'currency',
+		currency: 'USD',
+	}).format(safe)
+}
+
 const createTicketPdfBuffer = ({ ticket, customer, vessel }) =>
 	new Promise((resolve, reject) => {
 		const doc = new PDFDocument({ margin: 40 })
@@ -561,107 +983,225 @@ const createTicketPdfBuffer = ({ ticket, customer, vessel }) =>
 		doc.on('end', () => resolve(Buffer.concat(chunks)))
 		doc.on('error', reject)
 
-		doc.fontSize(20).text('CMP Garage Ticket Progress Update')
-		doc.moveDown(0.5)
-		doc.fontSize(11)
-			.fillColor('#334155')
-			.text(`Generated: ${formatPdfDate(new Date())}`)
-		doc.fillColor('black')
-		doc.moveDown()
+		const companyProfile = getCompanyProfile()
+		let isRenderingFooter = false
+		doc.on('pageAdded', () => {
+			if (isRenderingFooter) return
+			isRenderingFooter = true
+			addDossierFooter(doc, companyProfile)
+			isRenderingFooter = false
+		})
 
-		doc.fontSize(14).text('Ticket Overview')
-		doc.fontSize(11)
-		doc.text(
-			`Ticket ID: ${normalizeText(ticket.id || ticket._id) || 'N/A'}`,
-		)
-		doc.text(
-			`Service Title: ${normalizeText(ticket.service_title) || 'N/A'}`,
-		)
-		doc.text(`Category: ${normalizeText(ticket.service_category) || 'N/A'}`)
-		doc.text(`Status: ${normalizeText(ticket.status) || 'N/A'}`)
-		doc.text(`Priority: ${normalizeText(ticket.priority) || 'N/A'}`)
-		doc.text(`Created: ${formatPdfDate(ticket.createdAt)}`)
-		doc.text(`Scheduled: ${formatPdfDate(ticket.scheduledDate)}`)
-		doc.moveDown()
+		const left = doc.page.margins.left
+		const width =
+			doc.page.width - doc.page.margins.left - doc.page.margins.right
+		const ticketRef = normalizeText(ticket.id || ticket._id) || 'ticket'
+		const serviceTitle =
+			normalizeText(ticket.service_title) || 'Untitled service'
+		const customerName = normalizeText(customer?.name) || 'Customer'
+		const customerEmail = normalizeText(customer?.email) || 'N/A'
+		const vesselName =
+			normalizeText(vessel?.vesselName) ||
+			normalizeText(ticket?.vesselName) ||
+			'N/A'
+		const status = normalizeText(ticket?.status) || 'N/A'
+		const statusNormalized = normalizeForComparison(status)
+		const isFinalInvoice = statusNormalized === 'closed'
+		const reportTitle = isFinalInvoice
+			? 'FINAL SERVICE INVOICE'
+			: 'SERVICE PROGRESS UPDATE'
+		const reportContext = isFinalInvoice
+			? 'This report documents the final completed work and invoice totals for your service ticket.'
+			: 'This report provides the latest status and work details for your active service ticket.'
 
-		doc.fontSize(14).text('Customer and Vessel')
-		doc.fontSize(11)
-		doc.text(`Customer: ${normalizeText(customer?.name) || 'N/A'}`)
-		doc.text(`Customer Email: ${normalizeText(customer?.email) || 'N/A'}`)
-		doc.text(`Vessel: ${normalizeText(vessel?.vesselName) || 'N/A'}`)
-		doc.moveDown()
-
-		doc.fontSize(14).text('Initial Assessment')
-		doc.fontSize(11).text(
-			normalizeText(ticket.initialAssessment) ||
-				'No initial assessment provided.',
-		)
-		doc.moveDown()
-
-		doc.fontSize(14).text('Recommended Service')
-		doc.fontSize(11).text(
-			normalizeText(ticket.recommendedService) ||
-				'No recommended service provided.',
-		)
-		doc.moveDown()
-
-		doc.fontSize(14).text('Plan of Action')
-		doc.fontSize(11)
-		const planItems = Array.isArray(ticket.planOfAction)
-			? ticket.planOfAction
-			: []
-		if (!planItems.length) {
-			doc.text('No plan items have been added.')
-		} else {
-			planItems.forEach((item) => {
-				const state = item?.completed ? '[x]' : '[ ]'
-				doc.text(
-					`${state} ${normalizeText(item?.text) || 'Untitled task'}`,
-				)
-			})
-		}
-		doc.moveDown()
-
-		doc.fontSize(14).text('Required Parts')
-		doc.fontSize(11)
 		const requiredParts = Array.isArray(ticket.requiredParts)
 			? ticket.requiredParts
 			: []
-		if (!requiredParts.length) {
-			doc.text('No required parts have been added.')
-		} else {
-			requiredParts.forEach((part) => {
-				const state = part?.completed ? '[x]' : '[ ]'
-				doc.text(
-					`${state} ${normalizeText(part?.text) || 'Unnamed part'}`,
-				)
-			})
-		}
-		doc.moveDown()
+		const selectedParts = requiredParts.filter((part) => part?.completed)
+		const selectedPartsTotal = selectedParts.reduce((total, part) => {
+			const value = Number(part?.cost ?? 0)
+			if (!Number.isFinite(value) || value <= 0) return total
+			return total + value
+		}, 0)
+		const laborCost = Number(ticket?.laborCost ?? 0)
+		const safeLaborCost =
+			Number.isFinite(laborCost) && laborCost > 0 ? laborCost : 0
+		const invoiceTotal = selectedPartsTotal + safeLaborCost
 
-		doc.fontSize(14).text('Notes History')
-		doc.fontSize(11)
+		doc.save()
+		doc.rect(left, doc.y, width, 132).fill('#102434')
+		doc.restore()
+
+		doc.font('Helvetica-Bold')
+			.fontSize(7)
+			.fillColor('#b9d4e5')
+			.text(reportTitle, left + 14, doc.page.margins.top + 12)
+		doc.font('Helvetica-Bold')
+			.fontSize(24)
+			.fillColor('#ffffff')
+			.text(serviceTitle, left + 14, doc.page.margins.top + 26, {
+				width: width - 28,
+			})
+		doc.font('Helvetica')
+			.fontSize(10)
+			.fillColor('#d8e7f1')
+			.text(
+				`${normalizeText(ticket.service_category) || 'Service'} | ${status} | Priority: ${normalizeText(ticket.priority) || 'N/A'}`,
+				left + 14,
+				doc.page.margins.top + 58,
+			)
+		doc.font('Helvetica')
+			.fontSize(8)
+			.fillColor('#b9d4e5')
+			.text(
+				`${customerName} | ${vesselName}`,
+				left + 14,
+				doc.page.margins.top + 74,
+			)
+
+		const metricTop = doc.page.margins.top + 94
+		const metricWidth = (width - 28) / 4
+		const metrics = [
+			{ label: 'TICKET ID', value: ticketRef },
+			{
+				label: 'SCHEDULED',
+				value: formatPdfDateShort(ticket?.scheduledDate),
+			},
+			{ label: 'GENERATED', value: formatPdfDateShort(new Date()) },
+			{ label: 'INVOICE TOTAL', value: formatCurrencyUsd(invoiceTotal) },
+		]
+
+		metrics.forEach((metric, index) => {
+			const x = left + 14 + metricWidth * index
+			doc.font('Helvetica-Bold')
+				.fontSize(6)
+				.fillColor('#8db1c7')
+				.text(metric.label, x, metricTop)
+			doc.font('Helvetica-Bold')
+				.fontSize(10)
+				.fillColor('#ffffff')
+				.text(metric.value, x, metricTop + 10, {
+					width: metricWidth - 8,
+				})
+		})
+
+		doc.y = doc.page.margins.top + 148
+
+		const statementWidth = width
+		const statementTextWidth = statementWidth - 24
+		const statementHeight = doc.heightOfString(reportContext, {
+			width: statementTextWidth,
+			lineGap: 2,
+		})
+		const statementBoxHeight = Math.max(78, statementHeight + 32)
+
+		doc.save()
+		doc.roundedRect(
+			left,
+			doc.y,
+			statementWidth,
+			statementBoxHeight,
+			8,
+		).fillAndStroke('#ffffff', '#1e3a5f')
+		doc.restore()
+		doc.font('Helvetica-Bold')
+			.fontSize(7)
+			.fillColor('#64748b')
+			.text('STATEMENT OF SERVICE', left + 12, doc.y + 10)
+		doc.font('Helvetica')
+			.fontSize(10)
+			.fillColor('#0f172a')
+			.text(reportContext, left + 12, doc.y + 24, {
+				width: statementTextWidth,
+				lineGap: 2,
+			})
+
+		doc.y += statementBoxHeight + 12
+
+		doc.font('Helvetica-Bold')
+			.fontSize(11)
+			.fillColor('#0f172a')
+			.text('TICKET SUMMARY')
+		doc.moveDown(0.2)
+		addBullets(doc, [
+			`Ticket ID: ${ticketRef}`,
+			`Created: ${formatPdfDate(ticket?.createdAt)}`,
+			`Scheduled: ${formatPdfDate(ticket?.scheduledDate)}`,
+			`Customer: ${customerName}`,
+			`Customer Email: ${customerEmail}`,
+			`Vessel: ${vesselName}`,
+		])
+
+		addH3(doc, 'Initial Assessment')
+		addBullets(doc, [
+			normalizeText(ticket?.initialAssessment) ||
+				'No initial assessment provided.',
+		])
+
+		addH3(doc, 'Recommended Service')
+		addBullets(doc, [
+			normalizeText(ticket?.recommendedService) ||
+				'No recommended service provided.',
+		])
+
+		addH3(doc, 'Work Performed')
+		addBullets(doc, [
+			normalizeText(ticket?.summaryOfWorkPerformed) ||
+				'No work performed summary provided.',
+		])
+
+		addH3(doc, 'Further Recommendations')
+		addBullets(doc, [
+			normalizeText(ticket?.summaryOfFurtherRecommendations) ||
+				normalizeText(ticket?.recommendedService) ||
+				'No further recommendations provided.',
+		])
+
+		addH3(doc, 'Diagnostics Findings')
+		const diagnostics = getTicketDiagnosticFindings(ticket)
+		addBullets(
+			doc,
+			diagnostics.length
+				? diagnostics
+				: ['No abnormal findings recorded.'],
+		)
+
+		addH3(doc, 'Plan of Action')
+		const planItems = Array.isArray(ticket.planOfAction)
+			? ticket.planOfAction
+			: []
+		addBullets(
+			doc,
+			planItems.length
+				? planItems.map(
+						(item) =>
+							`${item?.completed ? '[x]' : '[ ]'} ${normalizeText(item?.text) || 'Untitled task'}`,
+					)
+				: ['No plan items added.'],
+		)
+
+		addH3(doc, 'Invoice Summary')
+		const partLines = selectedParts.map(
+			(part) =>
+				`${normalizeText(part?.text) || 'Unnamed part'} - ${formatCurrencyUsd(part?.cost)}`,
+		)
+		addBullets(doc, [
+			`Selected Parts Total: ${formatCurrencyUsd(selectedPartsTotal)}`,
+			`Labor Cost: ${formatCurrencyUsd(safeLaborCost)}`,
+			`Invoice Total: ${formatCurrencyUsd(invoiceTotal)}`,
+			...(partLines.length
+				? partLines
+				: ['No completed parts selected for billing.']),
+		])
+
+		addH3(doc, 'Notes History')
 		const noteEntries = splitHistoryNotes(ticket.notes)
-		if (!noteEntries.length) {
-			doc.text('No notes have been added.')
-		} else {
-			noteEntries.forEach((entry, index) => {
-				doc.text(`${index + 1}. ${entry}`)
-			})
-		}
-		doc.moveDown()
+		addBullets(
+			doc,
+			noteEntries.length ? noteEntries : ['No notes have been added.'],
+		)
 
-		doc.fontSize(14).text('Diagnostics')
-		doc.fontSize(11)
-		const diagnostics = ticket.diagnostics || {}
-		const diagnosticEntries = Object.entries(diagnostics)
-		if (!diagnosticEntries.length) {
-			doc.text('No diagnostics have been recorded.')
-		} else {
-			diagnosticEntries.forEach(([field, value]) => {
-				doc.text(`${field}: ${normalizeText(value) || 'N/A'}`)
-			})
-		}
+		addDossierFooter(doc, companyProfile)
 
 		doc.end()
 	})
@@ -678,9 +1218,6 @@ const createVesselDossierPdfBuffer = ({ vessel, customer, tickets }) =>
 		const vesselName = normalizeText(vessel?.vesselName) || 'Vessel Dossier'
 		const vesselYear = normalizeText(vessel?.vesselYear)
 		const vesselMake = normalizeText(vessel?.vesselMake)
-		const engineMake = normalizeText(vessel?.engineMake)
-		const engineModel = normalizeText(vessel?.engineModel)
-		const engineHours = normalizeText(vessel?.engineHours)
 		const vesselHistory = Array.isArray(tickets)
 			? [...tickets].sort(
 					(a, b) =>
@@ -688,146 +1225,151 @@ const createVesselDossierPdfBuffer = ({ vessel, customer, tickets }) =>
 						new Date(b?.scheduledDate || 0).getTime(),
 				)
 			: []
+		const ownerName =
+			normalizeText(customer?.name) ||
+			normalizeText(vessel?.customerName) ||
+			'Unknown owner'
+		const ownerPhone =
+			normalizeText(vessel?.customerPhone) ||
+			normalizeText(customer?.phone) ||
+			'N/A'
+		const documentedIssueCount = vesselHistory.reduce(
+			(total, ticket) =>
+				total + getTicketDiagnosticFindings(ticket).length,
+			0,
+		)
+		const reportRange = formatDateRangeLabel(vesselHistory)
+		const generatedLabel = formatPdfDateShort(new Date())
+		const statementBody = interpolateTemplate(
+			'This document represents the services and maintenance history on record for {{VESSEL}} as serviced and coordinated by {{COMPANY}} from {{RANGE}}. It includes chronological service entries and detailed notes to support vessel reliability and maintenance planning.',
+			{
+				VESSEL: vesselName,
+				COMPANY: getCompanyProfile().name,
+				RANGE: reportRange,
+			},
+		)
+		const companyProfile = getCompanyProfile()
+		let isRenderingFooter = false
 
-		addCoverSectionToDossier(doc, {
-			vesselName,
-			vessel,
-			customer,
-			serviceCount: vesselHistory.length,
+		doc.on('pageAdded', () => {
+			if (isRenderingFooter) return
+			isRenderingFooter = true
+			addDossierFooter(doc, companyProfile)
+			isRenderingFooter = false
 		})
 
-		doc.addPage()
+		const left = doc.page.margins.left
+		const width =
+			doc.page.width - doc.page.margins.left - doc.page.margins.right
 
-		addH2(doc, 'Vessel Demographics')
-		addBullets(doc, [
-			`Vessel Name: ${vesselName}`,
-			`Year: ${vesselYear || 'N/A'}`,
-			`Make: ${vesselMake || 'N/A'}`,
-			`Model: ${engineModel || 'N/A'}`,
-			`Owner: ${normalizeText(customer?.name) || normalizeText(vessel?.customerName) || 'N/A'}`,
-			`Registration Date: ${formatPdfDate(vessel?.registrationDate)}`,
-			`Customer / Primary Contact: ${normalizeText(customer?.name) || 'N/A'}`,
-			`Phone: ${normalizeText(vessel?.customerPhone) || normalizeText(customer?.phone) || 'N/A'}`,
-			`Email: ${normalizeText(customer?.email) || 'N/A'}`,
-			`Address: ${normalizeText(customer?.address) || 'N/A'}`,
-			`Hull ID: ${normalizeText(vessel?.hullIdNumber) || 'N/A'}`,
-			`Number of Engines: ${normalizeText(vessel?.numberOfEngines) || 'N/A'}`,
-			`Engine Make: ${engineMake || 'N/A'}`,
-			`Engine Model: ${engineModel || 'N/A'}`,
-			`Engine Horsepower: ${normalizeText(vessel?.engineHorsepower) || 'N/A'}`,
-			`Engine Hours: ${engineHours || 'N/A'}`,
-			`Generator: ${vessel?.generator ? 'Yes' : 'No'}`,
-			`Boat Location: ${normalizeText(vessel?.boatLocation) || 'N/A'}`,
-		])
-		const serialNumbers = Array.isArray(vessel?.engineSerialNumbers)
-			? vessel.engineSerialNumbers
-					.map((serialNumber) => normalizeText(serialNumber))
-					.filter(Boolean)
-			: []
-		addBullets(doc, [
-			`Engine Serial Numbers: ${serialNumbers.length ? serialNumbers.join(', ') : 'N/A'}`,
-		])
-		addSectionBreak(doc, 0.55)
+		doc.save()
+		doc.rect(left, doc.y, width, 144).fill('#102434')
+		doc.restore()
 
-		addH2(doc, 'Chronological Service History')
-		if (!vesselHistory.length) {
-			addBullets(doc, ['No service history found for this vessel.'])
-		} else {
-			vesselHistory.forEach((ticket, index) => {
-				if (index > 0) {
-					ensureSpaceFor(doc, 20)
-					doc.strokeColor('#e2e8f0')
-						.lineWidth(0.7)
-						.moveTo(doc.page.margins.left, doc.y)
-						.lineTo(doc.page.width - doc.page.margins.right, doc.y)
-						.stroke()
-					doc.moveDown(0.65)
-				}
+		doc.font('Helvetica-Bold')
+			.fontSize(7)
+			.fillColor('#b9d4e5')
+			.text(
+				'DOCUMENTED VESSEL HISTORY',
+				left + 14,
+				doc.page.margins.top + 12,
+			)
 
-				ensureSpaceFor(doc, 120)
-				addSectionBreak(doc, 0.25)
-				addH2(
-					doc,
-					`${index + 1}. ${normalizeText(ticket.service_title) || 'Untitled ticket'}`,
-				)
-				addBullets(doc, [
-					`Date: ${formatPdfDate(ticket.scheduledDate)}`,
-					`Category: ${normalizeText(ticket.service_category) || 'service'}`,
-					`Status: ${normalizeText(ticket.status) || 'N/A'}`,
-				])
-				addSectionBreak(doc, 0.7)
-
-				const diagnosticEntries = Object.entries(
-					ticket.diagnostics || {},
-				).filter(
-					([, value]) =>
-						normalizeText(value) &&
-						normalizeText(value) !== 'good' &&
-						normalizeText(value) !== 'N/A',
-				)
-				if (diagnosticEntries.length) {
-					addH3(doc, 'Abnormal Findings')
-					addBullets(
-						doc,
-						diagnosticEntries.map(([field, value]) =>
-							formatDiagnosticFinding(field, value),
-						),
-					)
-				} else {
-					addH3(doc, 'Abnormal Findings')
-					addBullets(doc, ['None recorded'])
-				}
-				addSectionBreak(doc)
-
-				const noteEntries = splitHistoryNotes(ticket.notes)
-				if (noteEntries.length) {
-					addH3(doc, 'Notes')
-					addBullets(doc, noteEntries)
-				} else {
-					addH3(doc, 'Notes')
-					addBullets(doc, ['None recorded'])
-				}
-				addSectionBreak(doc)
-
-				addH3(doc, 'Initial Assessment')
-				addBullets(doc, [
-					normalizeText(ticket.initialAssessment) ||
-						'No initial assessment provided.',
-				])
-				addPhotoSectionToPdf(
-					doc,
-					'Initial Assessment Photos',
-					toPhotoList(ticket.initialAssessmentPhotos),
-				)
-				addSectionBreak(doc)
-
-				addH3(doc, 'Work Done')
-				addBullets(doc, [
-					normalizeText(ticket.summaryOfWorkPerformed) ||
-						'No work performed summary provided.',
-				])
-				addPhotoSectionToPdf(
-					doc,
-					'Work Done Photos',
-					toPhotoList(ticket.summaryOfWorkPerformedPhotos),
-				)
-				addSectionBreak(doc)
-
-				addH3(doc, 'Work Recommended')
-				addBullets(doc, [
-					normalizeText(ticket.summaryOfFurtherRecommendations) ||
-						normalizeText(ticket.recommendedService) ||
-						'No work recommendation provided.',
-				])
-
-				addH3(doc, 'Final Assessment')
-				addBullets(doc, [
-					normalizeText(ticket.summaryOfWorkPerformed) ||
-						'No final assessment provided.',
-				])
-				addSectionBreak(doc, 0.6)
+		doc.font('Helvetica-Bold')
+			.fontSize(28)
+			.fillColor('#ffffff')
+			.text(vesselName, left + 14, doc.page.margins.top + 26, {
+				width: width - 28,
+				lineBreak: false,
 			})
-		}
+
+		doc.font('Helvetica')
+			.fontSize(10)
+			.fillColor('#d8e7f1')
+			.text(
+				`${vesselYear || 'Unknown year'} ${vesselMake || ''} | Owner: ${ownerName}`.trim(),
+				left + 14,
+				doc.page.margins.top + 62,
+			)
+		doc.font('Helvetica')
+			.fontSize(8)
+			.fillColor('#b9d4e5')
+			.text(
+				`Generated ${generatedLabel}`,
+				left + 14,
+				doc.page.margins.top + 78,
+			)
+
+		const metricTop = doc.page.margins.top + 100
+		const metricWidth = (width - 28) / 4
+		const metricData = [
+			{ label: 'REPORTS ON FILE', value: String(vesselHistory.length) },
+			{ label: 'COVERAGE', value: reportRange },
+			{
+				label: 'ENGINE HOURS',
+				value: normalizeText(vessel?.engineHours) || 'N/A',
+			},
+			{
+				label: 'DOCUMENTED REPAIRS',
+				value: String(documentedIssueCount),
+			},
+		]
+
+		metricData.forEach((entry, index) => {
+			const x = left + 14 + metricWidth * index
+			doc.font('Helvetica-Bold')
+				.fontSize(6)
+				.fillColor('#8db1c7')
+				.text(entry.label, x, metricTop)
+			doc.font('Helvetica-Bold')
+				.fontSize(11)
+				.fillColor('#ffffff')
+				.text(entry.value, x, metricTop + 10, {
+					width: metricWidth - 8,
+				})
+		})
+
+		doc.y = doc.page.margins.top + 160
+
+		const statementWidth = width
+		const statementTextWidth = statementWidth - 24
+		const statementHeight = doc.heightOfString(statementBody, {
+			width: statementTextWidth,
+			lineGap: 2,
+		})
+		const statementBoxHeight = Math.max(96, statementHeight + 36)
+
+		doc.save()
+		doc.roundedRect(
+			left,
+			doc.y,
+			statementWidth,
+			statementBoxHeight,
+			8,
+		).fillAndStroke('#ffffff', '#1e3a5f')
+		doc.restore()
+		doc.font('Helvetica-Bold')
+			.fontSize(7)
+			.fillColor('#64748b')
+			.text('STATEMENT OF DOCUMENTED SERVICE', left + 12, doc.y + 10)
+		doc.font('Helvetica')
+			.fontSize(10)
+			.fillColor('#0f172a')
+			.text(statementBody, left + 12, doc.y + 24, {
+				width: statementTextWidth,
+				lineGap: 2,
+			})
+
+		doc.y += statementBoxHeight + 12
+
+		doc.font('Helvetica-Bold')
+			.fontSize(11)
+			.fillColor('#0f172a')
+			.text('DETAILED SERVICE RECORDS')
+		doc.moveDown(0.12)
+		drawDetailedServiceCards(doc, vesselHistory)
+
+		addDossierFooter(doc, companyProfile)
 
 		doc.end()
 	})
@@ -1812,20 +2354,31 @@ export const emailTicketProgress = async (req, res) => {
 			vessel,
 		})
 		const ticketRef = normalizeText(ticket.id || ticket._id) || 'ticket'
+		const statusLabel = normalizeText(ticket.status)
+		const isFinalInvoice = normalizeForComparison(statusLabel) === 'closed'
+		const subjectPrefix = isFinalInvoice
+			? 'CMP Garage final invoice'
+			: 'CMP Garage progress update'
+		const attachmentPrefix = isFinalInvoice
+			? 'ticket-final-invoice'
+			: 'ticket-progress'
+		const introLine = isFinalInvoice
+			? 'Attached is your final service invoice and completed work summary.'
+			: 'Attached is the latest progress update for your service ticket.'
 
 		await transporter.sendMail({
 			from: fromAddress,
 			to: customerEmail,
-			subject: `CMP Garage progress update: ${normalizeText(ticket.service_title) || ticketRef}`,
+			subject: `${subjectPrefix}: ${normalizeText(ticket.service_title) || ticketRef}`,
 			text:
 				`Hello ${normalizeText(customer.name) || 'Customer'},\n\n` +
-				`Attached is the latest progress update for your service ticket.\n\n` +
+				`${introLine}\n\n` +
 				`Ticket: ${normalizeText(ticket.service_title) || ticketRef}\n` +
-				`Status: ${normalizeText(ticket.status) || 'N/A'}\n\n` +
+				`Status: ${statusLabel || 'N/A'}\n\n` +
 				`Thank you,\nCMP Garage`,
 			attachments: [
 				{
-					filename: `ticket-progress-${ticketRef}.pdf`,
+					filename: `${attachmentPrefix}-${ticketRef}.pdf`,
 					content: pdfBuffer,
 					contentType: 'application/pdf',
 				},
@@ -1866,6 +2419,55 @@ export const emailTicketProgress = async (req, res) => {
 	}
 }
 
+export const previewTicketProgress = async (req, res) => {
+	try {
+		const ticketId = String(req.params.id || '').trim()
+		if (!ticketId) {
+			return sendError(res, 400, 'Ticket id is required')
+		}
+
+		const ticket = await Ticket.findOne(toTicketQuery(ticketId)).lean()
+		if (!ticket) {
+			return sendError(res, 404, 'Ticket not found')
+		}
+
+		const customerId = normalizeText(ticket.customerId)
+		const customer = customerId
+			? await Customer.findOne(toEntityQuery(customerId)).lean()
+			: null
+
+		const vesselId = normalizeText(ticket.vesselId)
+		const vessel = vesselId
+			? await Vessel.findOne(toEntityQuery(vesselId)).lean()
+			: null
+
+		const pdfBuffer = await createTicketPdfBuffer({
+			ticket,
+			customer,
+			vessel,
+		})
+
+		const ticketRef = normalizeText(ticket.id || ticket._id) || 'ticket'
+		const isFinalInvoice =
+			normalizeForComparison(ticket.status) === 'closed'
+		const filePrefix = isFinalInvoice
+			? 'ticket-final-invoice'
+			: 'ticket-progress'
+
+		res.status(200)
+			.setHeader('Content-Type', 'application/pdf')
+			.setHeader(
+				'Content-Disposition',
+				`inline; filename="${filePrefix}-${ticketRef}.pdf"`,
+			)
+			.send(pdfBuffer)
+	} catch (error) {
+		console.error('Failed to generate ticket preview:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		sendError(res, 500, message || 'Failed to generate ticket preview')
+	}
+}
+
 export const emailVesselDossier = async (req, res) => {
 	try {
 		const vesselId = String(req.params.id || '').trim()
@@ -1878,16 +2480,13 @@ export const emailVesselDossier = async (req, res) => {
 			return sendError(res, 404, 'Vessel not found')
 		}
 
-		const customerId = String(vessel.customerId || '').trim()
-		if (!customerId) {
-			return sendError(res, 400, 'Vessel has no customer associated')
-		}
-
-		const customer = await Customer.findOne(
-			toEntityQuery(customerId),
-		).lean()
+		const customer = await findCustomerForVessel(vessel)
 		if (!customer) {
-			return sendError(res, 404, 'Customer for this vessel was not found')
+			return sendError(
+				res,
+				404,
+				'Customer for this vessel was not found. Update the vessel owner linkage or customer contact details.',
+			)
 		}
 
 		const customerEmail = normalizeText(customer.email)
@@ -1986,16 +2585,13 @@ export const previewVesselDossier = async (req, res) => {
 			return sendError(res, 404, 'Vessel not found')
 		}
 
-		const customerId = String(vessel.customerId || '').trim()
-		if (!customerId) {
-			return sendError(res, 400, 'Vessel has no customer associated')
-		}
-
-		const customer = await Customer.findOne(
-			toEntityQuery(customerId),
-		).lean()
+		const customer = await findCustomerForVessel(vessel)
 		if (!customer) {
-			return sendError(res, 404, 'Customer for this vessel was not found')
+			return sendError(
+				res,
+				404,
+				'Customer for this vessel was not found. Update the vessel owner linkage or customer contact details.',
+			)
 		}
 
 		const historyTickets = await Ticket.find({ vesselId })

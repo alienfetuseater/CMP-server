@@ -18,6 +18,7 @@ import {
 	getTicketProfile,
 	getTicket,
 	getReminder,
+	previewTicketProgress,
 	previewVesselDossier,
 	getAllCustomers,
 	getAllBoats,
@@ -79,6 +80,7 @@ router.post('/newCustomer', newCustomer)
 router.post('/newBoat', newBoat)
 router.post('/newTicket', newTicket)
 router.post('/newReminder', newReminder)
+router.get('/previewTicketProgress/:id', previewTicketProgress)
 router.get('/previewVesselDossier/:id', previewVesselDossier)
 router.post('/emailVesselDossier/:id', emailVesselDossier)
 router.post('/emailTicketProgress/:id', emailTicketProgress)

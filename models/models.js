@@ -16,6 +16,9 @@ const customerSchema = new Schema(
 	{ collection: 'CustomersCollection' },
 )
 
+customerSchema.index({ createdAt: -1 })
+customerSchema.index({ name: 1 })
+
 // -------------------- Vessel --------------------
 const diagnositicSchema = new Schema(
 	{
@@ -175,6 +178,11 @@ const vesselSchema = new Schema(
 	{ collection: 'BoatsCollection' },
 )
 
+vesselSchema.index({ customerId: 1 })
+vesselSchema.index({ createdAt: -1 })
+vesselSchema.index({ vesselName: 1 })
+vesselSchema.index({ hullIdNumber: 1 })
+
 // -------------------- Shared Embedded Message --------------------
 const messageSchema = new Schema(
 	{
@@ -215,6 +223,9 @@ const reminderSchema = new Schema(
 	},
 	{ collection: 'RemindersCollection' },
 )
+
+reminderSchema.index({ dueDate: 1 })
+reminderSchema.index({ completed: 1, dueDate: 1 })
 
 const planActionItemSchema = new Schema(
 	{
@@ -304,6 +315,14 @@ const ticketSchema = new Schema(
 	},
 	{ collection: 'TicketsCollection' },
 )
+
+ticketSchema.index({ createdAt: -1 })
+ticketSchema.index({ scheduledDate: 1 })
+ticketSchema.index({ status: 1, createdAt: -1 })
+ticketSchema.index({ priority: 1, createdAt: -1 })
+ticketSchema.index({ service_category: 1, createdAt: -1 })
+ticketSchema.index({ customerId: 1, createdAt: -1 })
+ticketSchema.index({ vesselId: 1, createdAt: -1 })
 
 // -------------------- User --------------------
 const userSchema = new Schema(

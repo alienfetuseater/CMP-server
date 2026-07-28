@@ -174,6 +174,7 @@ const vesselSchema = new Schema(
 		engineHours: { type: Number, required: true },
 		boatPhotoDataUrl: { type: String, default: '' },
 		registrationDate: { type: Date, default: Date.now },
+		modificationNotes: { type: String, default: '' },
 	},
 	{ collection: 'BoatsCollection' },
 )
@@ -324,6 +325,78 @@ ticketSchema.index({ service_category: 1, createdAt: -1 })
 ticketSchema.index({ customerId: 1, createdAt: -1 })
 ticketSchema.index({ vesselId: 1, createdAt: -1 })
 
+// -------------------- Monthly Report --------------------
+const monthlyReportSchema = new Schema(
+	{
+		id: {
+			type: String,
+			default: () => randomUUID(),
+			unique: true,
+			index: true,
+		},
+		customerId: {
+			type: Schema.Types.ObjectId,
+			ref: 'Customer',
+			required: true,
+		},
+		vesselId: {
+			type: Schema.Types.ObjectId,
+			ref: 'Vessel',
+			required: true,
+		},
+		customerName: { type: String, default: '' },
+		vesselName: { type: String, default: '' },
+		reportMonth: { type: String, required: true },
+		service_title: { type: String, required: true },
+		service_category: {
+			type: String,
+			enum: ['inspection', 'repair', 'maintenance', 'upgrade'],
+			default: 'maintenance',
+		},
+		status: {
+			type: String,
+			enum: [
+				'open',
+				'in progress',
+				'completed',
+				'closed',
+				'cancelled',
+				'on hold',
+			],
+			required: true,
+		},
+		priority: {
+			type: String,
+			enum: ['low', 'medium', 'high'],
+			required: true,
+		},
+		createdAt: { type: Date, default: Date.now },
+		notes: { type: String, default: '' },
+		initialAssessment: { type: String, default: '' },
+		initialAssessmentPhotos: {
+			type: [ticketPhotoAttachmentSchema],
+			default: [],
+		},
+		recommendedService: { type: String, default: '' },
+		summaryOfWorkPerformed: { type: String, default: '' },
+		summaryOfWorkPerformedPhotos: {
+			type: [ticketPhotoAttachmentSchema],
+			default: [],
+		},
+		laborCost: { type: Number, default: 0 },
+		summaryOfFurtherRecommendations: { type: String, default: '' },
+		planOfAction: { type: [planActionItemSchema], default: [] },
+		requiredParts: { type: [requiredPartItemSchema], default: [] },
+		diagnostics: diagnositicSchema,
+	},
+	{ collection: 'MonthlyReportsCollection' },
+)
+
+monthlyReportSchema.index({ vesselId: 1, createdAt: -1 })
+monthlyReportSchema.index({ customerId: 1, createdAt: -1 })
+monthlyReportSchema.index({ reportMonth: 1 })
+monthlyReportSchema.index({ status: 1, createdAt: -1 })
+
 // -------------------- User --------------------
 const userSchema = new Schema(
 	{
@@ -359,3 +432,4 @@ export const Vessel = mongoose.model('Vessel', vesselSchema)
 export const Reminder = mongoose.model('Reminder', reminderSchema)
 export const Ticket = mongoose.model('Ticket', ticketSchema)
 export const User = mongoose.model('User', userSchema)
+export const MonthlyReport = mongoose.model('MonthlyReport', monthlyReportSchema)

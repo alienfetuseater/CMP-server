@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import mongoose from 'mongoose'
 import nodemailer from 'nodemailer'
 import PDFDocument from 'pdfkit'
-import { Customer, Vessel, Ticket, Reminder, User } from '../models/models.js'
+import { Customer, Vessel, Ticket, Reminder, User, MonthlyReport } from '../models/models.js'
 import { createAuthToken } from '../middleware/auth.js'
 import {
 	emitConversationUpdated,
@@ -2695,5 +2695,439 @@ export const deleteReminder = async (req, res) => {
 		res.status(200).json({ message: 'reminder deleted' })
 	} catch (error) {
 		sendError(res, 500, 'Failed to delete reminder')
+	}
+}
+
+// ==================== Monthly Report Controllers ====================
+
+const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
+	new Promise((resolve, reject) => {
+		const doc = new PDFDocument({ margin: 40 })
+		const chunks = []
+
+		doc.on('data', (chunk) => chunks.push(chunk))
+		doc.on('end', () => resolve(Buffer.concat(chunks)))
+		doc.on('error', reject)
+
+		const companyProfile = getCompanyProfile()
+		let isRenderingFooter = false
+		doc.on('pageAdded', () => {
+			if (isRenderingFooter) return
+			isRenderingFooter = true
+			addDossierFooter(doc, companyProfile)
+			isRenderingFooter = false
+		})
+
+		const left = doc.page.margins.left
+		const width =
+			doc.page.width - doc.page.margins.left - doc.page.margins.right
+		const reportRef = normalizeText(report.id || report._id) || 'report'
+		const serviceTitle =
+			normalizeText(report.service_title) || 'Monthly Report'
+		const customerName = normalizeText(customer?.name) || 'Customer'
+		const customerEmail = normalizeText(customer?.email) || 'N/A'
+		const vesselName =
+			normalizeText(vessel?.vesselName) ||
+			normalizeText(report?.vesselName) ||
+			'N/A'
+		const status = normalizeText(report?.status) || 'N/A'
+
+		const reportMonth = normalizeText(report?.reportMonth)
+		const reportMonthLabel = (() => {
+			if (!reportMonth) return 'N/A'
+			const [year, month] = reportMonth.split('-')
+			if (!year || !month) return reportMonth
+			try {
+				return new Date(
+					Number(year),
+					Number(month) - 1,
+					1,
+				).toLocaleDateString('en-US', {
+					year: 'numeric',
+					month: 'long',
+				})
+			} catch {
+				return reportMonth
+			}
+		})()
+
+		const requiredParts = Array.isArray(report.requiredParts)
+			? report.requiredParts
+			: []
+		const selectedParts = requiredParts.filter((part) => part?.completed)
+		const selectedPartsTotal = selectedParts.reduce((total, part) => {
+			const value = Number(part?.cost ?? 0)
+			if (!Number.isFinite(value) || value <= 0) return total
+			return total + value
+		}, 0)
+		const laborCost = Number(report?.laborCost ?? 0)
+		const safeLaborCost =
+			Number.isFinite(laborCost) && laborCost > 0 ? laborCost : 0
+		const invoiceTotal = selectedPartsTotal + safeLaborCost
+
+		doc.save()
+		doc.rect(left, doc.y, width, 132).fill('#102434')
+		doc.restore()
+
+		doc.font('Helvetica-Bold')
+			.fontSize(7)
+			.fillColor('#b9d4e5')
+			.text('MONTHLY SERVICE REPORT', left + 14, doc.page.margins.top + 12)
+		doc.font('Helvetica-Bold')
+			.fontSize(24)
+			.fillColor('#ffffff')
+			.text(serviceTitle, left + 14, doc.page.margins.top + 26, {
+				width: width - 28,
+			})
+		doc.font('Helvetica')
+			.fontSize(10)
+			.fillColor('#d8e7f1')
+			.text(
+				`Maintenance | ${status} | Priority: ${normalizeText(report.priority) || 'N/A'}`,
+				left + 14,
+				doc.page.margins.top + 58,
+			)
+		doc.font('Helvetica')
+			.fontSize(8)
+			.fillColor('#b9d4e5')
+			.text(
+				`${customerName} | ${vesselName}`,
+				left + 14,
+				doc.page.margins.top + 74,
+			)
+
+		const metricTop = doc.page.margins.top + 94
+		const metricWidth = (width - 28) / 4
+		const metrics = [
+			{ label: 'REPORT ID', value: reportRef },
+			{ label: 'REPORT MONTH', value: reportMonthLabel },
+			{ label: 'GENERATED', value: formatPdfDateShort(new Date()) },
+			{ label: 'INVOICE TOTAL', value: formatCurrencyUsd(invoiceTotal) },
+		]
+
+		metrics.forEach((metric, index) => {
+			const x = left + 14 + metricWidth * index
+			doc.font('Helvetica-Bold')
+				.fontSize(6)
+				.fillColor('#8db1c7')
+				.text(metric.label, x, metricTop)
+			doc.font('Helvetica-Bold')
+				.fontSize(10)
+				.fillColor('#ffffff')
+				.text(metric.value, x, metricTop + 10, {
+					width: metricWidth - 8,
+				})
+		})
+
+		doc.y = doc.page.margins.top + 148
+
+		const reportContext =
+			'This report documents the monthly maintenance work performed and service summary for your vessel.'
+		const statementWidth = width
+		const statementTextWidth = statementWidth - 24
+		const statementHeight = doc.heightOfString(reportContext, {
+			width: statementTextWidth,
+			lineGap: 2,
+		})
+		const statementBoxHeight = Math.max(78, statementHeight + 32)
+
+		doc.save()
+		doc.roundedRect(
+			left,
+			doc.y,
+			statementWidth,
+			statementBoxHeight,
+			8,
+		).fillAndStroke('#ffffff', '#1e3a5f')
+		doc.restore()
+		doc.font('Helvetica-Bold')
+			.fontSize(7)
+			.fillColor('#64748b')
+			.text('STATEMENT OF SERVICE', left + 12, doc.y + 10)
+		doc.font('Helvetica')
+			.fontSize(10)
+			.fillColor('#0f172a')
+			.text(reportContext, left + 12, doc.y + 24, {
+				width: statementTextWidth,
+				lineGap: 2,
+			})
+
+		doc.y += statementBoxHeight + 12
+
+		doc.font('Helvetica-Bold')
+			.fontSize(11)
+			.fillColor('#0f172a')
+			.text('REPORT SUMMARY')
+		doc.moveDown(0.2)
+		addBullets(doc, [
+			`Report ID: ${reportRef}`,
+			`Created: ${formatPdfDate(report?.createdAt)}`,
+			`Report Month: ${reportMonthLabel}`,
+			`Customer: ${customerName}`,
+			`Customer Email: ${customerEmail}`,
+			`Vessel: ${vesselName}`,
+		])
+
+		addH3(doc, 'Initial Assessment')
+		addBullets(doc, [
+			normalizeText(report?.initialAssessment) ||
+				'No initial assessment provided.',
+		])
+
+		addH3(doc, 'Recommended Service')
+		addBullets(doc, [
+			normalizeText(report?.recommendedService) ||
+				'No recommended service provided.',
+		])
+
+		addH3(doc, 'Work Performed')
+		addBullets(doc, [
+			normalizeText(report?.summaryOfWorkPerformed) ||
+				'No work performed summary provided.',
+		])
+
+		addH3(doc, 'Further Recommendations')
+		addBullets(doc, [
+			normalizeText(report?.summaryOfFurtherRecommendations) ||
+				'No further recommendations provided.',
+		])
+
+		addH3(doc, 'Diagnostics Findings')
+		const diagnostics = getTicketDiagnosticFindings(report)
+		addBullets(
+			doc,
+			diagnostics.length
+				? diagnostics
+				: ['No abnormal findings recorded.'],
+		)
+
+		addH3(doc, 'Plan of Action')
+		const planItems = Array.isArray(report.planOfAction)
+			? report.planOfAction
+			: []
+		addBullets(
+			doc,
+			planItems.length
+				? planItems.map(
+						(item) =>
+							`${item?.completed ? '[x]' : '[ ]'} ${normalizeText(item?.text) || 'Untitled task'}`,
+					)
+				: ['No plan items added.'],
+		)
+
+		addH3(doc, 'Invoice Summary')
+		const partLines = selectedParts.map(
+			(part) =>
+				`${normalizeText(part?.text) || 'Unnamed part'} - ${formatCurrencyUsd(part?.cost)}`,
+		)
+		addBullets(doc, [
+			`Selected Parts Total: ${formatCurrencyUsd(selectedPartsTotal)}`,
+			`Labor Cost: ${formatCurrencyUsd(safeLaborCost)}`,
+			`Invoice Total: ${formatCurrencyUsd(invoiceTotal)}`,
+			...(partLines.length
+				? partLines
+				: ['No completed parts selected for billing.']),
+		])
+
+		addH3(doc, 'Notes History')
+		const noteEntries = splitHistoryNotes(report.notes)
+		addBullets(
+			doc,
+			noteEntries.length ? noteEntries : ['No notes have been added.'],
+		)
+
+		addDossierFooter(doc, companyProfile)
+
+		doc.end()
+	})
+
+export const getAllMonthlyReports = async (req, res) => {
+	try {
+		const reports = await MonthlyReport.find()
+			.select('-initialAssessmentPhotos -summaryOfWorkPerformedPhotos')
+			.sort({ createdAt: -1 })
+		res.status(200).json(reports)
+	} catch (error) {
+		sendError(res, 500, 'Failed to fetch monthly reports')
+	}
+}
+
+export const getMonthlyReportProfile = async (req, res) => {
+	try {
+		const reportId = String(req.params.id || req.query.id || '').trim()
+		if (!reportId) {
+			return sendError(res, 400, 'Report ID is required')
+		}
+		const query = mongoose.Types.ObjectId.isValid(reportId)
+			? { $or: [{ id: reportId }, { _id: reportId }] }
+			: { id: reportId }
+		const report = await MonthlyReport.findOne(query)
+		if (!report) {
+			return sendError(res, 404, 'Monthly report not found')
+		}
+		res.status(200).json(report)
+	} catch (error) {
+		console.error('Failed to fetch monthly report profile:', error)
+		sendError(res, 500, 'Failed to fetch monthly report profile')
+	}
+}
+
+export const newMonthlyReport = async (req, res) => {
+	try {
+		const report = await MonthlyReport.create(buildRecord(req.body))
+		res.status(201).json(report)
+	} catch (error) {
+		console.error(error)
+		sendError(res, 500, 'Failed to create monthly report')
+	}
+}
+
+export const updateMonthlyReport = async (req, res) => {
+	try {
+		const reportId = String(req.params.id || '').trim()
+		const query = mongoose.Types.ObjectId.isValid(reportId)
+			? { $or: [{ id: reportId }, { _id: reportId }] }
+			: { id: reportId }
+		const updated = await MonthlyReport.findOneAndUpdate(query, req.body, {
+			new: true,
+			runValidators: true,
+		})
+		if (!updated) {
+			return sendError(res, 404, 'Monthly report not found')
+		}
+		res.status(200).json(updated)
+	} catch (error) {
+		sendError(res, 500, 'Failed to update monthly report')
+	}
+}
+
+export const previewMonthlyReport = async (req, res) => {
+	try {
+		const reportId = String(req.params.id || '').trim()
+		if (!reportId) {
+			return sendError(res, 400, 'Report id is required')
+		}
+		const query = mongoose.Types.ObjectId.isValid(reportId)
+			? { $or: [{ id: reportId }, { _id: reportId }] }
+			: { id: reportId }
+		const report = await MonthlyReport.findOne(query).lean()
+		if (!report) {
+			return sendError(res, 404, 'Monthly report not found')
+		}
+		const customerId = normalizeText(report.customerId)
+		const customer = customerId
+			? await Customer.findOne(toEntityQuery(customerId)).lean()
+			: null
+		const vesselId = normalizeText(report.vesselId)
+		const vessel = vesselId
+			? await Vessel.findOne(toEntityQuery(vesselId)).lean()
+			: null
+		const pdfBuffer = await createMonthlyReportPdfBuffer({
+			report,
+			customer,
+			vessel,
+		})
+		const reportRef = normalizeText(report.id || report._id) || 'report'
+		res.status(200)
+			.setHeader('Content-Type', 'application/pdf')
+			.setHeader(
+				'Content-Disposition',
+				`inline; filename="monthly-report-${reportRef}.pdf"`,
+			)
+			.send(pdfBuffer)
+	} catch (error) {
+		console.error('Failed to generate monthly report preview:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		sendError(res, 500, message || 'Failed to generate monthly report preview')
+	}
+}
+
+export const emailMonthlyReport = async (req, res) => {
+	try {
+		const reportId = String(req.params.id || '').trim()
+		if (!reportId) {
+			return sendError(res, 400, 'Report id is required')
+		}
+		const query = mongoose.Types.ObjectId.isValid(reportId)
+			? { $or: [{ id: reportId }, { _id: reportId }] }
+			: { id: reportId }
+		const report = await MonthlyReport.findOne(query).lean()
+		if (!report) {
+			return sendError(res, 404, 'Monthly report not found')
+		}
+		const customerId = String(report.customerId || '').trim()
+		if (!customerId) {
+			return sendError(res, 400, 'Report has no customer associated')
+		}
+		const customer = await Customer.findOne(
+			toEntityQuery(customerId),
+		).lean()
+		if (!customer) {
+			return sendError(res, 404, 'Customer for this report was not found')
+		}
+		const customerEmail = normalizeText(customer.email)
+		if (!customerEmail) {
+			return sendError(
+				res,
+				400,
+				'Customer profile does not have an email address configured',
+			)
+		}
+		const vesselId = String(report.vesselId || '').trim()
+		const vessel = vesselId
+			? await Vessel.findOne(toEntityQuery(vesselId)).lean()
+			: null
+		const { transporter, fromAddress } = createEmailTransporter()
+		const pdfBuffer = await createMonthlyReportPdfBuffer({
+			report,
+			customer,
+			vessel,
+		})
+		const reportRef = normalizeText(report.id || report._id) || 'report'
+		await transporter.sendMail({
+			from: fromAddress,
+			to: customerEmail,
+			subject: `CMP Garage monthly report: ${normalizeText(report.service_title) || reportRef}`,
+			text:
+				`Hello ${normalizeText(customer.name) || 'Customer'},\n\n` +
+				`Attached is your monthly service report.\n\n` +
+				`Report: ${normalizeText(report.service_title) || reportRef}\n` +
+				`Status: ${normalizeText(report.status) || 'N/A'}\n\n` +
+				`Thank you,\nCMP Garage`,
+			attachments: [
+				{
+					filename: `monthly-report-${reportRef}.pdf`,
+					content: pdfBuffer,
+					contentType: 'application/pdf',
+				},
+			],
+		})
+		res.status(200).json({
+			message: `Monthly report emailed to ${customerEmail}`,
+			recipient: customerEmail,
+		})
+	} catch (error) {
+		console.error('Failed to email monthly report:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		const isMailConfigError =
+			message.includes('MAIL_FROM') ||
+			message.includes('MAIL_HOST') ||
+			message.includes('MAIL_PORT') ||
+			message.includes('MAIL_USER') ||
+			message.includes('MAIL_PASS') ||
+			message.includes('MAIL_SERVICE')
+		if (isMailConfigError) {
+			return sendError(res, 400, message)
+		}
+		const isMailDeliveryError =
+			message.includes('ECONNECTION') ||
+			message.includes('EAUTH') ||
+			message.includes('Invalid login') ||
+			message.includes('ENOTFOUND') ||
+			message.includes('ETIMEDOUT')
+		if (isMailDeliveryError) {
+			return sendError(res, 502, `Email delivery failed: ${message}`)
+		}
+		sendError(res, 500, message || 'Failed to email monthly report')
 	}
 }

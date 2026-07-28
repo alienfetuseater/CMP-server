@@ -38,6 +38,12 @@ import {
 	deleteBoat,
 	deleteTicket,
 	deleteReminder,
+	getAllMonthlyReports,
+	getMonthlyReportProfile,
+	newMonthlyReport,
+	updateMonthlyReport,
+	previewMonthlyReport,
+	emailMonthlyReport,
 } from '../controllers.js/controllers.js'
 import { requireAuth } from '../middleware/auth.js'
 
@@ -94,5 +100,13 @@ router.delete('/deleteCustomer/:id', deleteCustomer)
 router.delete('/deleteBoat/:id', deleteBoat)
 router.delete('/deleteTicket/:id', deleteTicket)
 router.delete('/deleteReminder/:id', deleteReminder)
+
+
+router.get('/getAllMonthlyReports', getAllMonthlyReports)
+router.get('/getMonthlyReportProfile', getMonthlyReportProfile)
+router.post('/newMonthlyReport', newMonthlyReport)
+router.put('/updateMonthlyReport/:id', updateMonthlyReport)
+router.get('/previewMonthlyReport/:id', previewMonthlyReport)
+router.post('/emailMonthlyReport/:id', emailMonthlyReport)
 
 export default router

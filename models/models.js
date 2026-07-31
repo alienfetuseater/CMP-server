@@ -1,5 +1,6 @@
 import mongoose from 'mongoose'
 import { randomUUID } from 'crypto'
+import { USER_ROLES } from '../domain/auth/roles.js'
 
 const { Schema } = mongoose
 
@@ -426,8 +427,8 @@ const userSchema = new Schema(
 		passwordHash: { type: String, required: true, select: false },
 		role: {
 			type: String,
-			enum: ['admin', 'user'],
-			default: 'user',
+			enum: [...USER_ROLES, 'user'],
+			default: 'viewer',
 		},
 		createdAt: { type: Date, default: Date.now },
 	},

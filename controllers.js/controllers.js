@@ -11,6 +11,7 @@ import {
 	User,
 	MonthlyReport,
 } from '../models/models.js'
+import { isUserRole, normalizeUserRole } from '../domain/auth/roles.js'
 import { createAuthToken } from '../middleware/auth.js'
 import {
 	emitConversationUpdated,
@@ -109,7 +110,7 @@ const toPublicUser = (user) => ({
 	id: normalizeText(user?.id || user?._id),
 	name: normalizeText(user?.name),
 	email: normalizeEmail(user?.email),
-	role: normalizeText(user?.role) || 'user',
+	role: normalizeUserRole(normalizeText(user?.role)),
 	createdAt: user?.createdAt,
 })
 
@@ -1386,9 +1387,13 @@ export const registerUser = async (req, res) => {
 		const name = normalizeText(req.body?.name)
 		const email = normalizeEmail(req.body?.email)
 		const password = normalizeText(req.body?.password)
+		const role = normalizeText(req.body?.role)
 
 		if (!name || !email || !password) {
 			return sendError(res, 400, 'Name, email, and password are required')
+		}
+		if (!isUserRole(role)) {
+			return sendError(res, 400, 'A valid user role is required')
 		}
 
 		const passwordError = validatePassword(password)
@@ -1411,16 +1416,11 @@ export const registerUser = async (req, res) => {
 			name,
 			email,
 			passwordHash,
+			role,
 		})
 
 		const publicUser = toPublicUser(user)
-		const token = createAuthToken({
-			userId: publicUser.id,
-			email: publicUser.email,
-			role: publicUser.role,
-		})
-
-		res.status(201).json({ token, user: publicUser })
+		res.status(201).json({ user: publicUser })
 	} catch (error) {
 		console.error('Failed to register user:', error)
 		const message = error instanceof Error ? error.message : String(error)

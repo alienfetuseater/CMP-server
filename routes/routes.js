@@ -49,12 +49,12 @@ import { requireAuth } from '../middleware/auth.js'
 
 const router = express.Router()
 
-router.post('/auth/register', registerUser)
 router.post('/auth/login', loginUser)
 router.get('/auth/me', requireAuth, getAuthenticatedUser)
 
 router.use(requireAuth)
 
+router.post('/auth/register', registerUser)
 router.get('/users', getUsers)
 
 router.get('/conversations', getConversationList)

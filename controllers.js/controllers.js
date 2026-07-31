@@ -3,7 +3,14 @@ import bcrypt from 'bcryptjs'
 import mongoose from 'mongoose'
 import nodemailer from 'nodemailer'
 import PDFDocument from 'pdfkit'
-import { Customer, Vessel, Ticket, Reminder, User, MonthlyReport } from '../models/models.js'
+import {
+	Customer,
+	Vessel,
+	Ticket,
+	Reminder,
+	User,
+	MonthlyReport,
+} from '../models/models.js'
 import { createAuthToken } from '../middleware/auth.js'
 import {
 	emitConversationUpdated,
@@ -2700,6 +2707,23 @@ export const deleteReminder = async (req, res) => {
 
 // ==================== Monthly Report Controllers ====================
 
+const monthlyReportWritableFields = [
+	'customerId',
+	'vesselId',
+	'customerName',
+	'vesselName',
+	'reportDate',
+	'notes',
+	'diagnostics',
+]
+
+const pickMonthlyReportPayload = (body = {}) =>
+	Object.fromEntries(
+		monthlyReportWritableFields
+			.filter((field) => Object.hasOwn(body, field))
+			.map((field) => [field, body[field]]),
+	)
+
 const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
 	new Promise((resolve, reject) => {
 		const doc = new PDFDocument({ margin: 40 })
@@ -2722,48 +2746,22 @@ const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
 		const width =
 			doc.page.width - doc.page.margins.left - doc.page.margins.right
 		const reportRef = normalizeText(report.id || report._id) || 'report'
-		const serviceTitle =
-			normalizeText(report.service_title) || 'Monthly Report'
 		const customerName = normalizeText(customer?.name) || 'Customer'
 		const customerEmail = normalizeText(customer?.email) || 'N/A'
 		const vesselName =
 			normalizeText(vessel?.vesselName) ||
 			normalizeText(report?.vesselName) ||
 			'N/A'
-		const status = normalizeText(report?.status) || 'N/A'
-
-		const reportMonth = normalizeText(report?.reportMonth)
-		const reportMonthLabel = (() => {
-			if (!reportMonth) return 'N/A'
-			const [year, month] = reportMonth.split('-')
-			if (!year || !month) return reportMonth
-			try {
-				return new Date(
-					Number(year),
-					Number(month) - 1,
-					1,
-				).toLocaleDateString('en-US', {
-					year: 'numeric',
-					month: 'long',
-				})
-			} catch {
-				return reportMonth
-			}
+		const reportDate = normalizeText(report?.reportDate)
+		const reportDateLabel = (() => {
+			const [year, month, day] = reportDate.split('-').map(Number)
+			if (!year || !month || !day) return reportDate || 'N/A'
+			return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+				year: 'numeric',
+				month: 'long',
+				day: 'numeric',
+			})
 		})()
-
-		const requiredParts = Array.isArray(report.requiredParts)
-			? report.requiredParts
-			: []
-		const selectedParts = requiredParts.filter((part) => part?.completed)
-		const selectedPartsTotal = selectedParts.reduce((total, part) => {
-			const value = Number(part?.cost ?? 0)
-			if (!Number.isFinite(value) || value <= 0) return total
-			return total + value
-		}, 0)
-		const laborCost = Number(report?.laborCost ?? 0)
-		const safeLaborCost =
-			Number.isFinite(laborCost) && laborCost > 0 ? laborCost : 0
-		const invoiceTotal = selectedPartsTotal + safeLaborCost
 
 		doc.save()
 		doc.rect(left, doc.y, width, 132).fill('#102434')
@@ -2772,37 +2770,32 @@ const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
 		doc.font('Helvetica-Bold')
 			.fontSize(7)
 			.fillColor('#b9d4e5')
-			.text('MONTHLY SERVICE REPORT', left + 14, doc.page.margins.top + 12)
+			.text(
+				'MONTHLY SERVICE REPORT',
+				left + 14,
+				doc.page.margins.top + 12,
+			)
 		doc.font('Helvetica-Bold')
 			.fontSize(24)
 			.fillColor('#ffffff')
-			.text(serviceTitle, left + 14, doc.page.margins.top + 26, {
+			.text('Monthly Report', left + 14, doc.page.margins.top + 26, {
 				width: width - 28,
 			})
-		doc.font('Helvetica')
-			.fontSize(10)
-			.fillColor('#d8e7f1')
-			.text(
-				`Maintenance | ${status} | Priority: ${normalizeText(report.priority) || 'N/A'}`,
-				left + 14,
-				doc.page.margins.top + 58,
-			)
 		doc.font('Helvetica')
 			.fontSize(8)
 			.fillColor('#b9d4e5')
 			.text(
 				`${customerName} | ${vesselName}`,
 				left + 14,
-				doc.page.margins.top + 74,
+				doc.page.margins.top + 66,
 			)
 
-		const metricTop = doc.page.margins.top + 94
-		const metricWidth = (width - 28) / 4
+		const metricTop = doc.page.margins.top + 92
+		const metricWidth = (width - 28) / 3
 		const metrics = [
 			{ label: 'REPORT ID', value: reportRef },
-			{ label: 'REPORT MONTH', value: reportMonthLabel },
+			{ label: 'REPORT DATE', value: reportDateLabel },
 			{ label: 'GENERATED', value: formatPdfDateShort(new Date()) },
-			{ label: 'INVOICE TOTAL', value: formatCurrencyUsd(invoiceTotal) },
 		]
 
 		metrics.forEach((metric, index) => {
@@ -2822,7 +2815,7 @@ const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
 		doc.y = doc.page.margins.top + 148
 
 		const reportContext =
-			'This report documents the monthly maintenance work performed and service summary for your vessel.'
+			'This report records the vessel demographics, notes, and diagnostic inspection findings for the selected date.'
 		const statementWidth = width
 		const statementTextWidth = statementWidth - 24
 		const statementHeight = doc.heightOfString(reportContext, {
@@ -2862,72 +2855,20 @@ const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
 		addBullets(doc, [
 			`Report ID: ${reportRef}`,
 			`Created: ${formatPdfDate(report?.createdAt)}`,
-			`Report Month: ${reportMonthLabel}`,
+			`Report Date: ${reportDateLabel}`,
 			`Customer: ${customerName}`,
 			`Customer Email: ${customerEmail}`,
 			`Vessel: ${vesselName}`,
 		])
 
-		addH3(doc, 'Initial Assessment')
-		addBullets(doc, [
-			normalizeText(report?.initialAssessment) ||
-				'No initial assessment provided.',
-		])
-
-		addH3(doc, 'Recommended Service')
-		addBullets(doc, [
-			normalizeText(report?.recommendedService) ||
-				'No recommended service provided.',
-		])
-
-		addH3(doc, 'Work Performed')
-		addBullets(doc, [
-			normalizeText(report?.summaryOfWorkPerformed) ||
-				'No work performed summary provided.',
-		])
-
-		addH3(doc, 'Further Recommendations')
-		addBullets(doc, [
-			normalizeText(report?.summaryOfFurtherRecommendations) ||
-				'No further recommendations provided.',
-		])
-
-		addH3(doc, 'Diagnostics Findings')
-		const diagnostics = getTicketDiagnosticFindings(report)
+		addH3(doc, 'Diagnostics')
+		const diagnostics = Object.entries(report?.diagnostics || {}).map(
+			([field, value]) => formatDiagnosticFinding(field, value),
+		)
 		addBullets(
 			doc,
-			diagnostics.length
-				? diagnostics
-				: ['No abnormal findings recorded.'],
+			diagnostics.length ? diagnostics : ['No diagnostics recorded.'],
 		)
-
-		addH3(doc, 'Plan of Action')
-		const planItems = Array.isArray(report.planOfAction)
-			? report.planOfAction
-			: []
-		addBullets(
-			doc,
-			planItems.length
-				? planItems.map(
-						(item) =>
-							`${item?.completed ? '[x]' : '[ ]'} ${normalizeText(item?.text) || 'Untitled task'}`,
-					)
-				: ['No plan items added.'],
-		)
-
-		addH3(doc, 'Invoice Summary')
-		const partLines = selectedParts.map(
-			(part) =>
-				`${normalizeText(part?.text) || 'Unnamed part'} - ${formatCurrencyUsd(part?.cost)}`,
-		)
-		addBullets(doc, [
-			`Selected Parts Total: ${formatCurrencyUsd(selectedPartsTotal)}`,
-			`Labor Cost: ${formatCurrencyUsd(safeLaborCost)}`,
-			`Invoice Total: ${formatCurrencyUsd(invoiceTotal)}`,
-			...(partLines.length
-				? partLines
-				: ['No completed parts selected for billing.']),
-		])
 
 		addH3(doc, 'Notes History')
 		const noteEntries = splitHistoryNotes(report.notes)
@@ -2943,9 +2884,10 @@ const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
 
 export const getAllMonthlyReports = async (req, res) => {
 	try {
-		const reports = await MonthlyReport.find()
-			.select('-initialAssessmentPhotos -summaryOfWorkPerformedPhotos')
-			.sort({ createdAt: -1 })
+		const reports = await MonthlyReport.find().sort({
+			reportDate: -1,
+			createdAt: -1,
+		})
 		res.status(200).json(reports)
 	} catch (error) {
 		sendError(res, 500, 'Failed to fetch monthly reports')
@@ -2974,11 +2916,19 @@ export const getMonthlyReportProfile = async (req, res) => {
 
 export const newMonthlyReport = async (req, res) => {
 	try {
-		const report = await MonthlyReport.create(buildRecord(req.body))
+		const payload = pickMonthlyReportPayload(req.body)
+		if (!payload.reportDate) {
+			return sendError(res, 400, 'Report date is required')
+		}
+		const report = await MonthlyReport.create(buildRecord(payload))
 		res.status(201).json(report)
 	} catch (error) {
 		console.error(error)
-		sendError(res, 500, 'Failed to create monthly report')
+		sendError(
+			res,
+			error?.name === 'ValidationError' ? 400 : 500,
+			error?.message || 'Failed to create monthly report',
+		)
 	}
 }
 
@@ -2988,16 +2938,24 @@ export const updateMonthlyReport = async (req, res) => {
 		const query = mongoose.Types.ObjectId.isValid(reportId)
 			? { $or: [{ id: reportId }, { _id: reportId }] }
 			: { id: reportId }
-		const updated = await MonthlyReport.findOneAndUpdate(query, req.body, {
-			new: true,
-			runValidators: true,
-		})
+		const updated = await MonthlyReport.findOneAndUpdate(
+			query,
+			pickMonthlyReportPayload(req.body),
+			{
+				new: true,
+				runValidators: true,
+			},
+		)
 		if (!updated) {
 			return sendError(res, 404, 'Monthly report not found')
 		}
 		res.status(200).json(updated)
 	} catch (error) {
-		sendError(res, 500, 'Failed to update monthly report')
+		sendError(
+			res,
+			error?.name === 'ValidationError' ? 400 : 500,
+			error?.message || 'Failed to update monthly report',
+		)
 	}
 }
 
@@ -3038,7 +2996,11 @@ export const previewMonthlyReport = async (req, res) => {
 	} catch (error) {
 		console.error('Failed to generate monthly report preview:', error)
 		const message = error instanceof Error ? error.message : String(error)
-		sendError(res, 500, message || 'Failed to generate monthly report preview')
+		sendError(
+			res,
+			500,
+			message || 'Failed to generate monthly report preview',
+		)
 	}
 }
 
@@ -3087,12 +3049,11 @@ export const emailMonthlyReport = async (req, res) => {
 		await transporter.sendMail({
 			from: fromAddress,
 			to: customerEmail,
-			subject: `CMP Garage monthly report: ${normalizeText(report.service_title) || reportRef}`,
+			subject: `CMP Garage monthly report: ${normalizeText(vessel?.vesselName) || reportRef}`,
 			text:
 				`Hello ${normalizeText(customer.name) || 'Customer'},\n\n` +
 				`Attached is your monthly service report.\n\n` +
-				`Report: ${normalizeText(report.service_title) || reportRef}\n` +
-				`Status: ${normalizeText(report.status) || 'N/A'}\n\n` +
+				`Report date: ${normalizeText(report.reportDate) || 'N/A'}\n\n` +
 				`Thank you,\nCMP Garage`,
 			attachments: [
 				{

@@ -5,7 +5,10 @@
 	"main": "server.js",
 	"type": "module",
 	"scripts": {
-		"start": "nodemon server.js"
+		"start": "nodemon server.js",
+		"test": "node --test",
+		"migrate:monthly-reports:dry": "node migrations/migrate-monthly-reports.js --dry-run",
+		"migrate:monthly-reports": "node migrations/migrate-monthly-reports.js"
 	},
 	"dependencies": {
 		"bcryptjs": "^3.0.3",

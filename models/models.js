@@ -346,47 +346,25 @@ const monthlyReportSchema = new Schema(
 		},
 		customerName: { type: String, default: '' },
 		vesselName: { type: String, default: '' },
-		reportMonth: { type: String, required: true },
-		service_title: { type: String, required: true },
-		service_category: {
+		reportDate: {
 			type: String,
-			enum: ['inspection', 'repair', 'maintenance', 'upgrade'],
-			default: 'maintenance',
-		},
-		status: {
-			type: String,
-			enum: [
-				'open',
-				'in progress',
-				'completed',
-				'closed',
-				'cancelled',
-				'on hold',
-			],
 			required: true,
-		},
-		priority: {
-			type: String,
-			enum: ['low', 'medium', 'high'],
-			required: true,
+			validate: {
+				validator(value) {
+					if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+					const [year, month, day] = value.split('-').map(Number)
+					const date = new Date(Date.UTC(year, month - 1, day))
+					return (
+						date.getUTCFullYear() === year &&
+						date.getUTCMonth() === month - 1 &&
+						date.getUTCDate() === day
+					)
+				},
+				message: 'reportDate must be a valid date in YYYY-MM-DD format',
+			},
 		},
 		createdAt: { type: Date, default: Date.now },
 		notes: { type: String, default: '' },
-		initialAssessment: { type: String, default: '' },
-		initialAssessmentPhotos: {
-			type: [ticketPhotoAttachmentSchema],
-			default: [],
-		},
-		recommendedService: { type: String, default: '' },
-		summaryOfWorkPerformed: { type: String, default: '' },
-		summaryOfWorkPerformedPhotos: {
-			type: [ticketPhotoAttachmentSchema],
-			default: [],
-		},
-		laborCost: { type: Number, default: 0 },
-		summaryOfFurtherRecommendations: { type: String, default: '' },
-		planOfAction: { type: [planActionItemSchema], default: [] },
-		requiredParts: { type: [requiredPartItemSchema], default: [] },
 		diagnostics: diagnositicSchema,
 	},
 	{ collection: 'MonthlyReportsCollection' },
@@ -394,8 +372,7 @@ const monthlyReportSchema = new Schema(
 
 monthlyReportSchema.index({ vesselId: 1, createdAt: -1 })
 monthlyReportSchema.index({ customerId: 1, createdAt: -1 })
-monthlyReportSchema.index({ reportMonth: 1 })
-monthlyReportSchema.index({ status: 1, createdAt: -1 })
+monthlyReportSchema.index({ reportDate: -1 })
 
 // -------------------- User --------------------
 const userSchema = new Schema(
@@ -432,4 +409,7 @@ export const Vessel = mongoose.model('Vessel', vesselSchema)
 export const Reminder = mongoose.model('Reminder', reminderSchema)
 export const Ticket = mongoose.model('Ticket', ticketSchema)
 export const User = mongoose.model('User', userSchema)
-export const MonthlyReport = mongoose.model('MonthlyReport', monthlyReportSchema)
+export const MonthlyReport = mongoose.model(
+	'MonthlyReport',
+	monthlyReportSchema,
+)

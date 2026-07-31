@@ -2862,19 +2862,42 @@ const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
 		])
 
 		addH3(doc, 'Diagnostics')
-		const diagnostics = Object.entries(report?.diagnostics || {}).map(
-			([field, value]) => formatDiagnosticFinding(field, value),
-		)
+		const diagnosticEntries = Object.entries(report?.diagnostics || {})
+		const diagnostics = diagnosticEntries.flatMap(([field, entry]) => {
+			const normalizedEntry =
+				typeof entry === 'string'
+					? { value: entry, comment: '', photos: [] }
+					: entry || {}
+			const lines = [
+				formatDiagnosticFinding(field, normalizedEntry.value),
+			]
+			const comment = normalizeText(normalizedEntry.comment)
+			if (comment)
+				lines.push(
+					`${formatDiagnosticFinding(field, 'Comment')}: ${comment}`,
+				)
+			return lines
+		})
 		addBullets(
 			doc,
 			diagnostics.length ? diagnostics : ['No diagnostics recorded.'],
 		)
 
-		addH3(doc, 'Notes History')
+		diagnosticEntries.forEach(([field, entry]) => {
+			if (!entry || typeof entry === 'string') return
+			const photos = toPhotoList(entry.photos)
+			if (!photos.length) return
+			const fieldLabel = String(field)
+				.replace(/_/g, ' ')
+				.replace(/\b\w/g, (character) => character.toUpperCase())
+			addPhotoSectionToPdf(doc, `${fieldLabel} Photos`, photos)
+		})
+
+		addH3(doc, 'Summary of Monthly Report')
 		const noteEntries = splitHistoryNotes(report.notes)
 		addBullets(
 			doc,
-			noteEntries.length ? noteEntries : ['No notes have been added.'],
+			noteEntries.length ? noteEntries : ['No summary has been added.'],
 		)
 
 		addDossierFooter(doc, companyProfile)

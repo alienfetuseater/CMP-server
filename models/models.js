@@ -257,6 +257,34 @@ const ticketPhotoAttachmentSchema = new Schema(
 	{ _id: false },
 )
 
+const monthlyReportDiagnosticEntrySchema = new Schema(
+	{
+		value: {
+			type: String,
+			enum: ['good', 'monitor', 'action', 'N/A'],
+			default: 'N/A',
+		},
+		comment: { type: String, default: '' },
+		photos: { type: [ticketPhotoAttachmentSchema], default: [] },
+	},
+	{ _id: false },
+)
+
+const monthlyReportDiagnosticsSchema = new Schema(
+	Object.fromEntries(
+		Object.keys(diagnositicSchema.paths)
+			.filter((field) => field !== '_id')
+			.map((field) => [
+				field,
+				{
+					type: monthlyReportDiagnosticEntrySchema,
+					default: () => ({}),
+				},
+			]),
+	),
+	{ _id: false },
+)
+
 const ticketSchema = new Schema(
 	{
 		customerId: {
@@ -365,7 +393,10 @@ const monthlyReportSchema = new Schema(
 		},
 		createdAt: { type: Date, default: Date.now },
 		notes: { type: String, default: '' },
-		diagnostics: diagnositicSchema,
+		diagnostics: {
+			type: monthlyReportDiagnosticsSchema,
+			default: () => ({}),
+		},
 	},
 	{ collection: 'MonthlyReportsCollection' },
 )

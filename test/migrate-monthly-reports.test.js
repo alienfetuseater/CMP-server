@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
 	buildMonthlyReportMigrationUpdate,
 	isValidDateOnly,
+	normalizeMonthlyReportDiagnostics,
 	resolveMonthlyReportDate,
 	retiredMonthlyReportFields,
 } from '../migrations/migrate-monthly-reports.js'
@@ -33,11 +34,40 @@ test('builds a permanent unset for every retired field', () => {
 		reportMonth: '2026-07',
 	})
 
-	assert.deepEqual(update.$set, { reportDate: '2026-07-01' })
+	assert.equal(update.$set.reportDate, '2026-07-01')
+	assert.deepEqual(update.$set.diagnostics.engine_oil, {
+		value: 'N/A',
+		comment: '',
+		photos: [],
+	})
 	assert.deepEqual(
 		Object.keys(update.$unset).sort(),
 		[...retiredMonthlyReportFields].sort(),
 	)
+})
+
+test('converts flat diagnostics and preserves enriched entries', () => {
+	const photo = {
+		id: 'photo-1',
+		name: 'Oil sample',
+		uploadedAt: '2026-07-31T12:00:00.000Z',
+		dataUrl: 'data:image/jpeg;base64,abc',
+	}
+	const diagnostics = normalizeMonthlyReportDiagnostics({
+		engine_oil: 'monitor',
+		gear_lube: { value: 'good', comment: 'Clean', photos: [photo] },
+	})
+
+	assert.deepEqual(diagnostics.engine_oil, {
+		value: 'monitor',
+		comment: '',
+		photos: [],
+	})
+	assert.deepEqual(diagnostics.gear_lube, {
+		value: 'good',
+		comment: 'Clean',
+		photos: [photo],
+	})
 })
 
 test('rejects malformed legacy month values', () => {

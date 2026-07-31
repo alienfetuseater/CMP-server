@@ -23,6 +23,39 @@ export const retiredMonthlyReportFields = [
 	'requiredParts',
 ]
 
+export const monthlyReportDiagnosticFields = [
+	'engine_oil',
+	'gear_lube',
+	'fuel_system',
+	'cooling_system',
+	'propeller_hardware',
+	'anodes_engine_drive',
+	'belts_hoses',
+	'steering_engine_mount_hardware',
+	'battery_voltage',
+	'terminals_connections',
+	'charger_shore_power',
+	'bilge_pump',
+	'navigation_anchorLights',
+	'ham_electronics_powerUp',
+	'hull_gellcoat',
+	'throughHull_seacocks',
+	'hull_trimTab_anodes',
+	'bottom_paint_growth',
+	'trim_tabs_operation',
+	'liftCables_pulleys',
+	'liftMotors_switches',
+	'bunks_guidePosts',
+	'dockLines_chafePoints',
+	'steeringFluid_operation',
+	'liveWell_washdownPumps',
+	'freshwater_system',
+	'head_waste_system',
+	'hatches_latches_drains',
+	'upholstery_canvas',
+	'safety_equipment_check',
+]
+
 export function isValidDateOnly(value) {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false
 	const [year, month, day] = value.split('-').map(Number)
@@ -51,9 +84,34 @@ export function resolveMonthlyReportDate(report) {
 	return candidate
 }
 
+export function normalizeMonthlyReportDiagnostics(diagnostics = {}) {
+	return Object.fromEntries(
+		monthlyReportDiagnosticFields.map((field) => {
+			const entry = diagnostics[field]
+			if (!entry || typeof entry === 'string') {
+				return [
+					field,
+					{ value: entry || 'N/A', comment: '', photos: [] },
+				]
+			}
+			return [
+				field,
+				{
+					value: entry.value || 'N/A',
+					comment: String(entry.comment || ''),
+					photos: Array.isArray(entry.photos) ? entry.photos : [],
+				},
+			]
+		}),
+	)
+}
+
 export function buildMonthlyReportMigrationUpdate(report) {
 	return {
-		$set: { reportDate: resolveMonthlyReportDate(report) },
+		$set: {
+			reportDate: resolveMonthlyReportDate(report),
+			diagnostics: normalizeMonthlyReportDiagnostics(report.diagnostics),
+		},
 		$unset: Object.fromEntries(
 			retiredMonthlyReportFields.map((field) => [field, '']),
 		),
@@ -63,6 +121,9 @@ export function buildMonthlyReportMigrationUpdate(report) {
 const candidateFilter = {
 	$or: [
 		{ reportDate: { $exists: false } },
+		...monthlyReportDiagnosticFields.map((field) => ({
+			[`diagnostics.${field}`]: { $type: 'string' },
+		})),
 		...retiredMonthlyReportFields.map((field) => ({
 			[field]: { $exists: true },
 		})),

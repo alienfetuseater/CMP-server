@@ -2,6 +2,8 @@ import express from 'express'
 import {
 	registerUser,
 	loginUser,
+	forgotPassword,
+	resetPassword,
 	getAuthenticatedUser,
 	getUsers,
 	getConversationList,
@@ -42,6 +44,7 @@ import {
 	getMonthlyReportProfile,
 	newMonthlyReport,
 	updateMonthlyReport,
+	unlockMonthlyReport,
 	previewMonthlyReport,
 	emailMonthlyReport,
 } from '../controllers.js/controllers.js'
@@ -50,6 +53,8 @@ import { requireAuth } from '../middleware/auth.js'
 const router = express.Router()
 
 router.post('/auth/login', loginUser)
+router.post('/auth/forgot-password', forgotPassword)
+router.post('/auth/reset-password', resetPassword)
 router.get('/auth/me', requireAuth, getAuthenticatedUser)
 
 router.use(requireAuth)
@@ -101,11 +106,11 @@ router.delete('/deleteBoat/:id', deleteBoat)
 router.delete('/deleteTicket/:id', deleteTicket)
 router.delete('/deleteReminder/:id', deleteReminder)
 
-
 router.get('/getAllMonthlyReports', getAllMonthlyReports)
 router.get('/getMonthlyReportProfile', getMonthlyReportProfile)
 router.post('/newMonthlyReport', newMonthlyReport)
 router.put('/updateMonthlyReport/:id', updateMonthlyReport)
+router.put('/unlockMonthlyReport/:id', unlockMonthlyReport)
 router.get('/previewMonthlyReport/:id', previewMonthlyReport)
 router.post('/emailMonthlyReport/:id', emailMonthlyReport)
 

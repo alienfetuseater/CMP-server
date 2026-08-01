@@ -393,6 +393,17 @@ const monthlyReportSchema = new Schema(
 			},
 		},
 		createdAt: { type: Date, default: Date.now },
+		status: {
+			type: String,
+			enum: ['draft', 'completed'],
+			default: 'draft',
+		},
+		isLocked: { type: Boolean, default: false },
+		completedAt: { type: Date, default: null },
+		lockedAt: { type: Date, default: null },
+		lockedByUserId: { type: String, default: '' },
+		unlockedAt: { type: Date, default: null },
+		unlockedByUserId: { type: String, default: '' },
 		notes: { type: String, default: '' },
 		diagnostics: {
 			type: monthlyReportDiagnosticsSchema,
@@ -425,6 +436,10 @@ const userSchema = new Schema(
 			index: true,
 		},
 		passwordHash: { type: String, required: true, select: false },
+		passwordResetTokenHash: { type: String, default: null, select: false },
+		passwordResetExpiresAt: { type: Date, default: null },
+		passwordResetRequestedAt: { type: Date, default: null },
+		passwordResetUsedAt: { type: Date, default: null },
 		role: {
 			type: String,
 			enum: [...USER_ROLES, 'user'],

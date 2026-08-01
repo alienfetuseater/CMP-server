@@ -25,6 +25,23 @@ Content-Type: application/json
   "password": "ChangeMe123!"
 }
 
+### Forgot password (send reset email)
+POST {{host}}/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "admin@example.com"
+}
+
+### Reset password (token comes from email link query ?token=...)
+POST {{host}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "paste-token-from-email-link",
+  "password": "NewStrongPassword123!"
+}
+
 ### Get authenticated user (requires token)
 GET {{host}}/auth/me
 Authorization: Bearer {{authToken}}

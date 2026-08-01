@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomBytes, randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import mongoose from 'mongoose'
 import nodemailer from 'nodemailer'
@@ -310,6 +310,17 @@ const validatePassword = (password) => {
 		return 'Password must be at least 8 characters long'
 	}
 	return ''
+}
+
+const hashPasswordResetToken = (token) =>
+	createHash('sha256').update(normalizeText(token)).digest('hex')
+
+const getPasswordResetUrl = (rawToken) => {
+	const baseUrl =
+		normalizeText(process.env.PASSWORD_RESET_URL_BASE) ||
+		'http://localhost:5173/reset-password'
+	const separator = baseUrl.includes('?') ? '&' : '?'
+	return `${baseUrl}${separator}token=${encodeURIComponent(rawToken)}`
 }
 
 const splitHistoryNotes = (value) => {
@@ -1472,6 +1483,129 @@ export const loginUser = async (req, res) => {
 		}
 
 		sendError(res, 500, message || 'Failed to login user')
+	}
+}
+
+export const forgotPassword = async (req, res) => {
+	try {
+		const email = normalizeEmail(req.body?.email)
+		if (!email) {
+			return sendError(res, 400, 'Email is required')
+		}
+
+		const genericMessage =
+			'If an account exists for that email, a password reset email has been sent.'
+
+		const user = await User.findOne({ email })
+		if (!user) {
+			return res.status(200).json({ message: genericMessage })
+		}
+
+		const rawToken = randomBytes(32).toString('hex')
+		const expiresAt = new Date(Date.now() + 1000 * 60 * 30)
+
+		user.passwordResetTokenHash = hashPasswordResetToken(rawToken)
+		user.passwordResetExpiresAt = expiresAt
+		user.passwordResetRequestedAt = new Date()
+		user.passwordResetUsedAt = null
+		await user.save()
+
+		const { transporter, fromAddress } = createEmailTransporter()
+		const resetUrl = getPasswordResetUrl(rawToken)
+
+		await transporter.sendMail({
+			from: fromAddress,
+			to: email,
+			subject: 'CMP Garage password reset request',
+			text: [
+				'We received a request to reset your CMP Garage password.',
+				'',
+				'Use the link below to reset your password. This link expires in 30 minutes.',
+				resetUrl,
+				'',
+				'If you did not request this reset, you can ignore this email.',
+			].join('\n'),
+			html: `
+				<p>We received a request to reset your CMP Garage password.</p>
+				<p>
+					<a href="${resetUrl}">Reset Password</a>
+				</p>
+				<p>This link expires in 30 minutes.</p>
+				<p>If you did not request this reset, you can ignore this email.</p>
+			`,
+		})
+
+		const includeDebugUrl =
+			normalizeText(process.env.NODE_ENV).toLowerCase() !== 'production'
+		res.status(200).json({
+			message: genericMessage,
+			...(includeDebugUrl ? { debugResetUrl: resetUrl } : {}),
+		})
+	} catch (error) {
+		console.error('Failed to send password reset email:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		const isConfigError =
+			message.includes('MAIL_FROM') ||
+			message.includes('MAIL_HOST') ||
+			message.includes('MAIL_PORT') ||
+			message.includes('MAIL_USER') ||
+			message.includes('MAIL_PASS') ||
+			message.includes('MAIL_SERVICE')
+
+		return sendError(
+			res,
+			isConfigError ? 500 : 500,
+			isConfigError ? message : 'Failed to send password reset email',
+		)
+	}
+}
+
+export const resetPassword = async (req, res) => {
+	try {
+		const rawToken = normalizeText(req.body?.token)
+		const password = normalizeText(req.body?.password)
+
+		if (!rawToken || !password) {
+			return sendError(res, 400, 'Reset token and password are required')
+		}
+
+		const passwordError = validatePassword(password)
+		if (passwordError) {
+			return sendError(res, 400, passwordError)
+		}
+
+		const tokenHash = hashPasswordResetToken(rawToken)
+		const user = await User.findOne({ passwordResetTokenHash: tokenHash })
+		if (!user) {
+			return sendError(res, 400, 'Invalid password reset token')
+		}
+
+		if (
+			!user.passwordResetExpiresAt ||
+			new Date(user.passwordResetExpiresAt).getTime() < Date.now()
+		) {
+			return sendError(res, 400, 'Password reset token has expired')
+		}
+
+		if (user.passwordResetUsedAt) {
+			return sendError(
+				res,
+				400,
+				'Password reset token has already been used',
+			)
+		}
+
+		user.passwordHash = await bcrypt.hash(password, 12)
+		user.passwordResetUsedAt = new Date()
+		user.passwordResetTokenHash = null
+		user.passwordResetExpiresAt = null
+		await user.save()
+
+		res.status(200).json({ message: 'Password updated successfully' })
+	} catch (error) {
+		console.error('Failed to reset password:', error)
+		const message = error instanceof Error ? error.message : String(error)
+		sendError(res, 500, message || 'Failed to reset password')
 	}
 }
 
@@ -2717,6 +2851,14 @@ const monthlyReportWritableFields = [
 	'diagnostics',
 ]
 
+const isMonthlyReportCompletionRequested = (body = {}) =>
+	body?.markCompleted === true
+
+const canUnlockMonthlyReport = (role) => {
+	const normalizedRole = normalizeUserRole(normalizeText(role))
+	return normalizedRole === 'admin' || normalizedRole === 'serviceManager'
+}
+
 const pickMonthlyReportPayload = (body = {}) =>
 	Object.fromEntries(
 		monthlyReportWritableFields
@@ -2943,7 +3085,22 @@ export const newMonthlyReport = async (req, res) => {
 		if (!payload.reportDate) {
 			return sendError(res, 400, 'Report date is required')
 		}
-		const report = await MonthlyReport.create(buildRecord(payload))
+
+		const markCompleted = isMonthlyReportCompletionRequested(req.body)
+		const authUserId = normalizeText(req.authUser?.userId)
+		const timestamp = new Date()
+		const report = await MonthlyReport.create(
+			buildRecord({
+				...payload,
+				status: markCompleted ? 'completed' : 'draft',
+				isLocked: markCompleted,
+				completedAt: markCompleted ? timestamp : null,
+				lockedAt: markCompleted ? timestamp : null,
+				lockedByUserId: markCompleted ? authUserId : '',
+				unlockedAt: null,
+				unlockedByUserId: '',
+			}),
+		)
 		res.status(201).json(report)
 	} catch (error) {
 		console.error(error)
@@ -2961,9 +3118,36 @@ export const updateMonthlyReport = async (req, res) => {
 		const query = mongoose.Types.ObjectId.isValid(reportId)
 			? { $or: [{ id: reportId }, { _id: reportId }] }
 			: { id: reportId }
+		const existing = await MonthlyReport.findOne(query)
+		if (!existing) {
+			return sendError(res, 404, 'Monthly report not found')
+		}
+
+		if (existing.isLocked) {
+			return sendError(
+				res,
+				423,
+				'This monthly report is completed and locked. It cannot be reopened unless unlocked by an admin or service manager.',
+			)
+		}
+
+		const markCompleted = isMonthlyReportCompletionRequested(req.body)
+		const authUserId = normalizeText(req.authUser?.userId)
+		const timestamp = new Date()
+		const updatePayload = {
+			...pickMonthlyReportPayload(req.body),
+			status: markCompleted ? 'completed' : 'draft',
+			isLocked: markCompleted,
+			completedAt: markCompleted ? timestamp : null,
+			lockedAt: markCompleted ? timestamp : null,
+			lockedByUserId: markCompleted ? authUserId : '',
+			unlockedAt: null,
+			unlockedByUserId: '',
+		}
+
 		const updated = await MonthlyReport.findOneAndUpdate(
 			query,
-			pickMonthlyReportPayload(req.body),
+			updatePayload,
 			{
 				new: true,
 				runValidators: true,
@@ -2979,6 +3163,52 @@ export const updateMonthlyReport = async (req, res) => {
 			error?.name === 'ValidationError' ? 400 : 500,
 			error?.message || 'Failed to update monthly report',
 		)
+	}
+}
+
+export const unlockMonthlyReport = async (req, res) => {
+	try {
+		const reportId = String(req.params.id || '').trim()
+		if (!reportId) {
+			return sendError(res, 400, 'Report ID is required')
+		}
+
+		const role = normalizeUserRole(normalizeText(req.authUser?.role))
+		if (!canUnlockMonthlyReport(role)) {
+			return sendError(
+				res,
+				403,
+				'Only admin or service manager users can unlock completed monthly reports',
+			)
+		}
+
+		const query = mongoose.Types.ObjectId.isValid(reportId)
+			? { $or: [{ id: reportId }, { _id: reportId }] }
+			: { id: reportId }
+
+		const report = await MonthlyReport.findOne(query)
+		if (!report) {
+			return sendError(res, 404, 'Monthly report not found')
+		}
+
+		if (!report.isLocked) {
+			return sendError(res, 400, 'Monthly report is not locked')
+		}
+
+		report.status = 'draft'
+		report.isLocked = false
+		report.completedAt = null
+		report.lockedAt = null
+		report.lockedByUserId = ''
+		report.unlockedAt = new Date()
+		report.unlockedByUserId = normalizeText(req.authUser?.userId)
+
+		await report.save()
+
+		res.status(200).json(report)
+	} catch (error) {
+		console.error('Failed to unlock monthly report:', error)
+		sendError(res, 500, 'Failed to unlock monthly report')
 	}
 }
 

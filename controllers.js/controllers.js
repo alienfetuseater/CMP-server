@@ -1721,6 +1721,39 @@ export const getUsers = async (req, res) => {
 	}
 }
 
+export const getUserAssignedTickets = async (req, res) => {
+	try {
+		const userId = normalizeText(req.params?.id)
+		const user = await User.findOne(toEntityQuery(userId)).select('id')
+		if (!user) {
+			return sendError(res, 404, 'User not found')
+		}
+
+		const tickets = await Ticket.find({
+			assignedUserId: normalizeText(user.id || user._id),
+		})
+			.select(
+				'id service_title service_category status priority scheduledDate',
+			)
+			.sort({ scheduledDate: 1, createdAt: -1 })
+			.lean()
+
+		res.status(200).json(
+			tickets.map((ticket) => ({
+				id: normalizeText(ticket.id || ticket._id),
+				title: normalizeText(ticket.service_title) || 'Untitled Ticket',
+				category: normalizeServiceCategory(ticket.service_category),
+				status: normalizeText(ticket.status),
+				priority: normalizeText(ticket.priority),
+				scheduledDate: ticket.scheduledDate,
+			})),
+		)
+	} catch (error) {
+		console.error('Failed to fetch assigned tickets:', error)
+		sendError(res, 500, 'Failed to fetch assigned tickets')
+	}
+}
+
 export const getAssignableUsers = async (req, res) => {
 	try {
 		const users = await User.find().sort({ name: 1 })

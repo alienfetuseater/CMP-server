@@ -6,6 +6,7 @@ import {
 	resetPassword,
 	getAuthenticatedUser,
 	getUsers,
+	getUserAssignedTickets,
 	getAssignableUsers,
 	getAssignmentBoard,
 	getUserAccess,
@@ -96,6 +97,11 @@ router.get(
 	getAssignableUsers,
 )
 router.get('/users', requirePermission('users:read'), getUsers)
+router.get(
+	'/users/:id/tickets',
+	requirePermission('users:read'),
+	getUserAssignedTickets,
+)
 router.put('/users/:id', requirePermission('users:assignRole'), updateUser)
 
 router.get(

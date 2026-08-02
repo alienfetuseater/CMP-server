@@ -1,4 +1,6 @@
 import jwt from 'jsonwebtoken'
+import { hasPermission } from '../domain/auth/roles.js'
+import { User } from '../models/models.js'
 
 const normalizeText = (value) => {
 	if (value === undefined || value === null) return ''
@@ -37,5 +39,24 @@ export const requireAuth = (req, res, next) => {
 		next()
 	} catch {
 		return res.status(401).json({ error: 'Invalid or expired token' })
+	}
+}
+
+export const requirePermission = (permission) => async (req, res, next) => {
+	try {
+		const userId = normalizeText(req.authUser?.userId)
+		const user = userId ? await User.findOne({ id: userId }).select('role') : null
+		if (!user) {
+			return res.status(401).json({ error: 'Authenticated user not found' })
+		}
+
+		if (!hasPermission(user.role, permission)) {
+			return res.status(403).json({ error: 'Insufficient permissions' })
+		}
+
+		req.authUser.role = user.role
+		next()
+	} catch {
+		return res.status(500).json({ error: 'Failed to verify permissions' })
 	}
 }

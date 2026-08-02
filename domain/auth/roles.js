@@ -25,6 +25,8 @@ export const ROLE_PERMISSIONS = {
 		'documents:send',
 	],
 	serviceManager: [
+		'users:create',
+		'users:read',
 		'calendar:view',
 		'records:read',
 		'customers:manage',

@@ -11,7 +11,7 @@ import {
 	User,
 	MonthlyReport,
 } from '../models/models.js'
-import { isUserRole, normalizeUserRole } from '../domain/auth/roles.js'
+import { hasPermission, isUserRole, normalizeUserRole } from '../domain/auth/roles.js'
 import { createAuthToken } from '../middleware/auth.js'
 import {
 	emitConversationUpdated,
@@ -1406,6 +1406,14 @@ export const registerUser = async (req, res) => {
 		if (!isUserRole(role)) {
 			return sendError(res, 400, 'A valid user role is required')
 		}
+		const creatorRole = normalizeUserRole(req.authUser?.role)
+		if (creatorRole !== 'admin' && ['admin', 'serviceManager'].includes(role)) {
+			return sendError(
+				res,
+				403,
+				'Only administrators can create privileged accounts',
+			)
+		}
 
 		const passwordError = validatePassword(password)
 		if (passwordError) {
@@ -1635,6 +1643,48 @@ export const getUsers = async (req, res) => {
 	} catch (error) {
 		console.error('Failed to fetch users:', error)
 		sendError(res, 500, 'Failed to fetch users')
+	}
+}
+
+export const getUserAccess = (req, res) => {
+	const role = normalizeUserRole(req.authUser?.role)
+	res.status(200).json({
+		canRead: hasPermission(role, 'users:read'),
+		canCreate: hasPermission(role, 'users:create'),
+		canEdit: hasPermission(role, 'users:assignRole'),
+	})
+}
+
+export const updateUser = async (req, res) => {
+	try {
+		const userId = normalizeText(req.params?.id)
+		const name = normalizeText(req.body?.name)
+		const email = normalizeEmail(req.body?.email)
+		const role = normalizeText(req.body?.role)
+
+		if (!userId || !name || !email || !isUserRole(role)) {
+			return sendError(res, 400, 'Name, email, and a valid role are required')
+		}
+
+		const user = await User.findOne(toEntityQuery(userId))
+		if (!user) {
+			return sendError(res, 404, 'User not found')
+		}
+
+		const duplicate = await User.findOne({ email, _id: { $ne: user._id } })
+		if (duplicate) {
+			return sendError(res, 409, 'An account already exists for this email')
+		}
+
+		user.name = name
+		user.email = email
+		user.role = role
+		await user.save()
+
+		res.status(200).json({ user: toPublicUser(user) })
+	} catch (error) {
+		console.error('Failed to update user:', error)
+		sendError(res, 500, 'Failed to update user')
 	}
 }
 

@@ -6,6 +6,8 @@ import {
 	resetPassword,
 	getAuthenticatedUser,
 	getUsers,
+	getUserAccess,
+	updateUser,
 	getConversationList,
 	getConversation,
 	markConversationRead,
@@ -48,7 +50,7 @@ import {
 	previewMonthlyReport,
 	emailMonthlyReport,
 } from '../controllers.js/controllers.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requirePermission } from '../middleware/auth.js'
 
 const router = express.Router()
 
@@ -59,8 +61,10 @@ router.get('/auth/me', requireAuth, getAuthenticatedUser)
 
 router.use(requireAuth)
 
-router.post('/auth/register', registerUser)
-router.get('/users', getUsers)
+router.post('/auth/register', requirePermission('users:create'), registerUser)
+router.get('/users/access', requirePermission('users:read'), getUserAccess)
+router.get('/users', requirePermission('users:read'), getUsers)
+router.put('/users/:id', requirePermission('users:assignRole'), updateUser)
 
 router.get('/conversations', getConversationList)
 router.get('/conversations/:type/:id', getConversation)

@@ -6,10 +6,12 @@ import {
 	normalizeUserRole,
 } from '../domain/auth/roles.js'
 
-test('admin identity permissions are not granted to service managers', () => {
+test('service managers can register and view users without administering roles', () => {
 	assert.equal(hasPermission('admin', 'users:create'), true)
 	assert.equal(hasPermission('admin', 'settings:manage'), true)
-	assert.equal(hasPermission('serviceManager', 'users:create'), false)
+	assert.equal(hasPermission('serviceManager', 'users:create'), true)
+	assert.equal(hasPermission('serviceManager', 'users:read'), true)
+	assert.equal(hasPermission('serviceManager', 'users:assignRole'), false)
 	assert.equal(hasPermission('serviceManager', 'settings:manage'), false)
 	assert.equal(hasPermission('serviceManager', 'records:delete'), true)
 })
@@ -21,6 +23,7 @@ test('technicians cannot view the calendar', () => {
 
 test('legacy users normalize without receiving administrator privileges', () => {
 	assert.equal(normalizeUserRole('user'), 'serviceManager')
-	assert.equal(hasPermission('user', 'users:create'), false)
+	assert.equal(hasPermission('user', 'users:create'), true)
+	assert.equal(hasPermission('user', 'users:assignRole'), false)
 	assert.equal(isUserRole('user'), false)
 })

@@ -8,7 +8,9 @@
 		"start": "nodemon server.js",
 		"test": "node --test",
 		"migrate:monthly-reports:dry": "node migrations/migrate-monthly-reports.js --dry-run",
-		"migrate:monthly-reports": "node migrations/migrate-monthly-reports.js"
+		"migrate:monthly-reports": "node migrations/migrate-monthly-reports.js",
+		"migrate:ticket-categories:dry": "node migrations/migrate-ticket-categories.js --dry-run",
+		"migrate:ticket-categories": "node migrations/migrate-ticket-categories.js"
 	},
 	"dependencies": {
 		"bcryptjs": "^3.0.3",

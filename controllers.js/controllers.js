@@ -54,6 +54,13 @@ const normalizeText = (value) => {
 	return String(value).trim()
 }
 
+const normalizeServiceCategory = (value) => {
+	const category = normalizeText(value).toLowerCase()
+	if (category === 'inspection') return 'maintenance'
+	if (category === 'upgrade') return 'modification'
+	return category
+}
+
 const isTechnicianRequest = (req) =>
 	normalizeUserRole(req.authUser?.role) === 'technician'
 
@@ -677,8 +684,13 @@ const getDossierEntryType = (ticket) => {
 	if (category.includes('maintenance') || title.includes('maintenance')) {
 		return 'MAINTENANCE'
 	}
-	if (category.includes('upgrade') || title.includes('upgrade')) {
-		return 'UPGRADE'
+	if (
+		category.includes('modification') ||
+		category.includes('upgrade') ||
+		title.includes('modification') ||
+		title.includes('upgrade')
+	) {
+		return 'MODIFICATION'
 	}
 
 	return 'SERVICE'
@@ -694,7 +706,7 @@ const getDossierEntryTheme = (entryType) => {
 	if (entryType === 'MAINTENANCE') {
 		return { accent: '#2563eb', soft: '#eff6ff', text: '#1e40af' }
 	}
-	if (entryType === 'UPGRADE') {
+	if (entryType === 'MODIFICATION') {
 		return { accent: '#0ea5e9', soft: '#ecfeff', text: '#0c4a6e' }
 	}
 
@@ -1756,7 +1768,7 @@ export const getAssignmentBoard = async (req, res) => {
 			tickets: tickets.map((ticket) => ({
 				id: normalizeText(ticket.id || ticket._id),
 				kind: 'ticket',
-				category: normalizeText(ticket.service_category),
+				category: normalizeServiceCategory(ticket.service_category),
 				title: normalizeText(ticket.service_title) || 'Untitled Ticket',
 				synopsis: assignmentSynopsis(
 					[
@@ -2377,7 +2389,7 @@ export const getTicketProfile = async (req, res) => {
  *         Partial text search on the job title.
  *         Example: ?service_title=engine
  *
- *    - service_category    (enum: inspection | repair | maintenance | upgrade)
+ *    - service_category    (enum: repair | maintenance | modification)
  *         Exact match on the job category.
  *         Example: ?service_category=repair
  *
@@ -2635,6 +2647,9 @@ export const newBoat = async (req, res) => {
 
 export const newTicket = async (req, res) => {
 	try {
+		req.body.service_category = normalizeServiceCategory(
+			req.body.service_category,
+		)
 		if (normalizeText(req.body.assignedUserId)) {
 			await assertCanDelegateAssignment(req)
 		}
@@ -2706,6 +2721,11 @@ export const updateBoat = async (req, res) => {
 
 export const updateTicket = async (req, res) => {
 	try {
+		if (Object.hasOwn(req.body, 'service_category')) {
+			req.body.service_category = normalizeServiceCategory(
+				req.body.service_category,
+			)
+		}
 		const ticketId = String(req.params.id || '')
 		const query = scopeAssignmentQuery(req, toTicketQuery(ticketId))
 

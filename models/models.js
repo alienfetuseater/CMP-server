@@ -163,7 +163,19 @@ const vesselSchema = new Schema(
 		hullIdNumber: { type: String, required: true },
 		numberOfEngines: { type: Number, required: true },
 		engineSerialNumbers: [{ type: String }],
+		engineFuelType: {
+			type: String,
+			enum: ['gasoline', 'diesel', ''],
+			default: '',
+		},
+		engineInstallationType: {
+			type: String,
+			enum: ['inboard', 'outboard', ''],
+			default: '',
+		},
 		generator: { type: Boolean, required: true },
+		generatorCount: { type: Number, min: 0, default: 0 },
+		generatorSerialNumbers: [{ type: String }],
 		boatLocation: {
 			type: String,
 			enum: ['trailor', 'slip', 'dry dock'],
@@ -302,7 +314,7 @@ const ticketSchema = new Schema(
 		},
 		service_category: {
 			type: String,
-			enum: ['inspection', 'repair', 'maintenance', 'upgrade'],
+			enum: ['repair', 'maintenance', 'modification'],
 			required: true,
 		},
 		service_title: { type: String, required: true },

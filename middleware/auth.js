@@ -45,9 +45,13 @@ export const requireAuth = (req, res, next) => {
 export const requirePermission = (permission) => async (req, res, next) => {
 	try {
 		const userId = normalizeText(req.authUser?.userId)
-		const user = userId ? await User.findOne({ id: userId }).select('role') : null
+		const user = userId
+			? await User.findOne({ id: userId }).select('role')
+			: null
 		if (!user) {
-			return res.status(401).json({ error: 'Authenticated user not found' })
+			return res
+				.status(401)
+				.json({ error: 'Authenticated user not found' })
 		}
 
 		if (!hasPermission(user.role, permission)) {

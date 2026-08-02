@@ -11,7 +11,11 @@ import {
 	User,
 	MonthlyReport,
 } from '../models/models.js'
-import { hasPermission, isUserRole, normalizeUserRole } from '../domain/auth/roles.js'
+import {
+	hasPermission,
+	isUserRole,
+	normalizeUserRole,
+} from '../domain/auth/roles.js'
 import { createAuthToken } from '../middleware/auth.js'
 import {
 	emitConversationUpdated,
@@ -1407,7 +1411,10 @@ export const registerUser = async (req, res) => {
 			return sendError(res, 400, 'A valid user role is required')
 		}
 		const creatorRole = normalizeUserRole(req.authUser?.role)
-		if (creatorRole !== 'admin' && ['admin', 'serviceManager'].includes(role)) {
+		if (
+			creatorRole !== 'admin' &&
+			['admin', 'serviceManager'].includes(role)
+		) {
 			return sendError(
 				res,
 				403,
@@ -1663,7 +1670,11 @@ export const updateUser = async (req, res) => {
 		const role = normalizeText(req.body?.role)
 
 		if (!userId || !name || !email || !isUserRole(role)) {
-			return sendError(res, 400, 'Name, email, and a valid role are required')
+			return sendError(
+				res,
+				400,
+				'Name, email, and a valid role are required',
+			)
 		}
 
 		const user = await User.findOne(toEntityQuery(userId))
@@ -1673,7 +1684,11 @@ export const updateUser = async (req, res) => {
 
 		const duplicate = await User.findOne({ email, _id: { $ne: user._id } })
 		if (duplicate) {
-			return sendError(res, 409, 'An account already exists for this email')
+			return sendError(
+				res,
+				409,
+				'An account already exists for this email',
+			)
 		}
 
 		user.name = name

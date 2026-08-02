@@ -6,7 +6,10 @@ import {
 	resetPassword,
 	getAuthenticatedUser,
 	getUsers,
+	getAssignableUsers,
+	getAssignmentBoard,
 	getUserAccess,
+	getWorkspaceAccess,
 	updateUser,
 	getConversationList,
 	getConversation,
@@ -50,7 +53,11 @@ import {
 	previewMonthlyReport,
 	emailMonthlyReport,
 } from '../controllers.js/controllers.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import {
+	requireAnyPermission,
+	requireAuth,
+	requirePermission,
+} from '../middleware/auth.js'
 
 const router = express.Router()
 
@@ -63,59 +70,209 @@ router.use(requireAuth)
 
 router.post('/auth/register', requirePermission('users:create'), registerUser)
 router.get('/users/access', requirePermission('users:read'), getUserAccess)
+router.get(
+	'/workspace/access',
+	requirePermission('records:read'),
+	getWorkspaceAccess,
+)
+router.get(
+	'/assignments/access',
+	requirePermission('assignments:delegate'),
+	(req, res) => res.status(200).json({ canDelegate: true }),
+)
+router.get(
+	'/assignments/board',
+	requirePermission('assignments:view'),
+	getAssignmentBoard,
+)
+router.get(
+	'/assignments/board-access',
+	requirePermission('assignments:view'),
+	(req, res) => res.status(200).json({ canView: true }),
+)
+router.get(
+	'/users/assignable',
+	requirePermission('assignments:delegate'),
+	getAssignableUsers,
+)
 router.get('/users', requirePermission('users:read'), getUsers)
 router.put('/users/:id', requirePermission('users:assignRole'), updateUser)
 
-router.get('/conversations', getConversationList)
-router.get('/conversations/:type/:id', getConversation)
-router.post('/conversations/:type/:id/read', markConversationRead)
-router.post('/conversations/:type/:id/archive', archiveConversation)
-router.post('/conversations/:type/:id/messages', postConversationMessage)
+router.get(
+	'/conversations',
+	requirePermission('messages:manage'),
+	getConversationList,
+)
+router.get(
+	'/conversations/:type/:id',
+	requirePermission('messages:manage'),
+	getConversation,
+)
+router.post(
+	'/conversations/:type/:id/read',
+	requirePermission('messages:manage'),
+	markConversationRead,
+)
+router.post(
+	'/conversations/:type/:id/archive',
+	requirePermission('messages:manage'),
+	archiveConversation,
+)
+router.post(
+	'/conversations/:type/:id/messages',
+	requirePermission('messages:manage'),
+	postConversationMessage,
+)
 router.delete(
 	'/conversations/:type/:id/messages/:messageId',
+	requirePermission('messages:manage'),
 	deleteConversationMessage,
 )
-router.delete('/conversations/:type/:id', deleteConversation)
+router.delete(
+	'/conversations/:type/:id',
+	requirePermission('messages:manage'),
+	deleteConversation,
+)
 
-router.get('/searchCustomers', searchCustomersByName)
-router.get('/searchVessels', searchVesselByName)
+router.get(
+	'/searchCustomers',
+	requirePermission('directory:view'),
+	searchCustomersByName,
+)
+router.get(
+	'/searchVessels',
+	requirePermission('directory:view'),
+	searchVesselByName,
+)
 
-router.get('/getCustomerProfile', getCustomerProfile)
-router.get('/getBoatProfile', getBoatProfile)
-router.get('/getTicketProfile', getTicketProfile)
-router.get('/getTicket', getTicket)
-router.get('/getReminder', getReminder)
+router.get(
+	'/getCustomerProfile',
+	requirePermission('records:read'),
+	getCustomerProfile,
+)
+router.get('/getBoatProfile', requirePermission('records:read'), getBoatProfile)
+router.get(
+	'/getTicketProfile',
+	requirePermission('records:read'),
+	getTicketProfile,
+)
+router.get('/getTicket', requirePermission('records:read'), getTicket)
+router.get('/getReminder', requirePermission('reminders:view'), getReminder)
 
-router.get('/getAllCustomers', getAllCustomers)
-router.get('/getAllBoats', getAllBoats)
-router.get('/getAllTickets', getAllTickets)
-router.get('/getAllReminders', getAllReminders)
+router.get(
+	'/getAllCustomers',
+	requirePermission('records:read'),
+	getAllCustomers,
+)
+router.get('/getAllBoats', requirePermission('records:read'), getAllBoats)
+router.get('/getAllTickets', requirePermission('records:read'), getAllTickets)
+router.get(
+	'/getAllReminders',
+	requirePermission('reminders:view'),
+	getAllReminders,
+)
 
-router.post('/newCustomer', newCustomer)
-router.post('/newBoat', newBoat)
-router.post('/newTicket', newTicket)
-router.post('/newReminder', newReminder)
-router.get('/previewTicketProgress/:id', previewTicketProgress)
-router.get('/previewVesselDossier/:id', previewVesselDossier)
-router.post('/emailVesselDossier/:id', emailVesselDossier)
-router.post('/emailTicketProgress/:id', emailTicketProgress)
+router.post('/newCustomer', requirePermission('customers:manage'), newCustomer)
+router.post('/newBoat', requirePermission('vessels:manage'), newBoat)
+router.post(
+	'/newTicket',
+	requireAnyPermission('tickets:manage', 'tickets:create'),
+	newTicket,
+)
+router.post('/newReminder', requirePermission('reminders:manage'), newReminder)
+router.get(
+	'/previewTicketProgress/:id',
+	requirePermission('records:read'),
+	previewTicketProgress,
+)
+router.get(
+	'/previewVesselDossier/:id',
+	requirePermission('records:read'),
+	previewVesselDossier,
+)
+router.post(
+	'/emailVesselDossier/:id',
+	requirePermission('documents:send'),
+	emailVesselDossier,
+)
+router.post(
+	'/emailTicketProgress/:id',
+	requirePermission('documents:send'),
+	emailTicketProgress,
+)
 
-router.put('/updateCustomer/:id', updateCustomer)
-router.put('/updateBoat/:id', updateBoat)
-router.put('/updateTicket/:id', updateTicket)
-router.put('/updateReminder/:id', updateReminder)
+router.put(
+	'/updateCustomer/:id',
+	requirePermission('customers:manage'),
+	updateCustomer,
+)
+router.put('/updateBoat/:id', requirePermission('vessels:manage'), updateBoat)
+router.put(
+	'/updateTicket/:id',
+	requireAnyPermission('tickets:manage', 'tickets:update'),
+	updateTicket,
+)
+router.put(
+	'/updateReminder/:id',
+	requirePermission('reminders:manage'),
+	updateReminder,
+)
 
-router.delete('/deleteCustomer/:id', deleteCustomer)
-router.delete('/deleteBoat/:id', deleteBoat)
-router.delete('/deleteTicket/:id', deleteTicket)
-router.delete('/deleteReminder/:id', deleteReminder)
+router.delete(
+	'/deleteCustomer/:id',
+	requirePermission('records:delete'),
+	deleteCustomer,
+)
+router.delete(
+	'/deleteBoat/:id',
+	requirePermission('records:delete'),
+	deleteBoat,
+)
+router.delete(
+	'/deleteTicket/:id',
+	requirePermission('records:delete'),
+	deleteTicket,
+)
+router.delete(
+	'/deleteReminder/:id',
+	requirePermission('reminders:manage'),
+	deleteReminder,
+)
 
-router.get('/getAllMonthlyReports', getAllMonthlyReports)
-router.get('/getMonthlyReportProfile', getMonthlyReportProfile)
-router.post('/newMonthlyReport', newMonthlyReport)
-router.put('/updateMonthlyReport/:id', updateMonthlyReport)
-router.put('/unlockMonthlyReport/:id', unlockMonthlyReport)
-router.get('/previewMonthlyReport/:id', previewMonthlyReport)
-router.post('/emailMonthlyReport/:id', emailMonthlyReport)
+router.get(
+	'/getAllMonthlyReports',
+	requirePermission('records:read'),
+	getAllMonthlyReports,
+)
+router.get(
+	'/getMonthlyReportProfile',
+	requirePermission('records:read'),
+	getMonthlyReportProfile,
+)
+router.post(
+	'/newMonthlyReport',
+	requireAnyPermission('reports:manage', 'reports:create'),
+	newMonthlyReport,
+)
+router.put(
+	'/updateMonthlyReport/:id',
+	requireAnyPermission('reports:manage', 'reports:update'),
+	updateMonthlyReport,
+)
+router.put(
+	'/unlockMonthlyReport/:id',
+	requirePermission('reports:manage'),
+	unlockMonthlyReport,
+)
+router.get(
+	'/previewMonthlyReport/:id',
+	requirePermission('records:read'),
+	previewMonthlyReport,
+)
+router.post(
+	'/emailMonthlyReport/:id',
+	requirePermission('documents:send'),
+	emailMonthlyReport,
+)
 
 export default router

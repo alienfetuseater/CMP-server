@@ -209,6 +209,7 @@ const messageSchema = new Schema(
 const reminderSchema = new Schema(
 	{
 		title: { type: String, required: true },
+		createdByUserId: { type: String, required: true, immutable: true },
 		dueDate: { type: Date },
 		completed: { type: Boolean, default: false },
 		notes: { type: String, default: '' },
@@ -228,6 +229,7 @@ const reminderSchema = new Schema(
 
 reminderSchema.index({ dueDate: 1 })
 reminderSchema.index({ completed: 1, dueDate: 1 })
+reminderSchema.index({ createdByUserId: 1, completed: 1, dueDate: 1 })
 
 const planActionItemSchema = new Schema(
 	{
@@ -321,6 +323,8 @@ const ticketSchema = new Schema(
 			enum: ['low', 'medium', 'high'],
 			required: true,
 		},
+		assignedUserId: { type: String, default: '' },
+		assignedUserName: { type: String, default: '' },
 		createdAt: { type: Date, default: Date.now },
 		scheduledDate: { type: Date, required: true },
 		notes: { type: String, default: '' },
@@ -353,6 +357,7 @@ ticketSchema.index({ priority: 1, createdAt: -1 })
 ticketSchema.index({ service_category: 1, createdAt: -1 })
 ticketSchema.index({ customerId: 1, createdAt: -1 })
 ticketSchema.index({ vesselId: 1, createdAt: -1 })
+ticketSchema.index({ assignedUserId: 1, status: 1 })
 
 // -------------------- Monthly Report --------------------
 const monthlyReportSchema = new Schema(
@@ -375,6 +380,8 @@ const monthlyReportSchema = new Schema(
 		},
 		customerName: { type: String, default: '' },
 		vesselName: { type: String, default: '' },
+		assignedUserId: { type: String, default: '' },
+		assignedUserName: { type: String, default: '' },
 		reportDate: {
 			type: String,
 			required: true,
@@ -416,6 +423,7 @@ const monthlyReportSchema = new Schema(
 monthlyReportSchema.index({ vesselId: 1, createdAt: -1 })
 monthlyReportSchema.index({ customerId: 1, createdAt: -1 })
 monthlyReportSchema.index({ reportDate: -1 })
+monthlyReportSchema.index({ assignedUserId: 1, status: 1 })
 
 // -------------------- User --------------------
 const userSchema = new Schema(

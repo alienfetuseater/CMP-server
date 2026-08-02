@@ -54,6 +54,44 @@ const normalizeText = (value) => {
 	return String(value).trim()
 }
 
+const isTechnicianRequest = (req) =>
+	normalizeUserRole(req.authUser?.role) === 'technician'
+
+const scopeAssignmentQuery = (req, query = {}) =>
+	isTechnicianRequest(req)
+		? {
+				$and: [
+					query,
+					{ assignedUserId: normalizeText(req.authUser?.userId) },
+				],
+			}
+		: query
+
+const scopeReminderQuery = (req, query = {}) => ({
+	$and: [query, { createdByUserId: normalizeText(req.authUser?.userId) }],
+})
+
+const assignedEntityIds = async (req, field) => {
+	if (!isTechnicianRequest(req)) return null
+	const assignedUserId = normalizeText(req.authUser?.userId)
+	const [ticketIds, reportIds] = await Promise.all([
+		Ticket.distinct(field, { assignedUserId }),
+		MonthlyReport.distinct(field, { assignedUserId }),
+	])
+	return [...new Set([...ticketIds, ...reportIds].map(String))]
+}
+
+const technicianCanViewEntity = async (req, field, entityId) => {
+	if (!isTechnicianRequest(req)) return true
+	const assignedUserId = normalizeText(req.authUser?.userId)
+	const entityQuery = { assignedUserId, [field]: entityId }
+	const [ticket, report] = await Promise.all([
+		Ticket.exists(entityQuery),
+		MonthlyReport.exists(entityQuery),
+	])
+	return Boolean(ticket || report)
+}
+
 const normalizeEmail = (value) => normalizeText(value).toLowerCase()
 
 const normalizePhoneDigits = (value) => normalizeText(value).replace(/\D/g, '')
@@ -155,8 +193,15 @@ const getConversationModel = (type) => {
 	return null
 }
 
-const getConversationQuery = (type, entityId) =>
-	type === 'ticket' ? toTicketQuery(entityId) : toEntityQuery(entityId)
+const getConversationQuery = (type, entityId, req) => {
+	const query =
+		type === 'ticket' ? toTicketQuery(entityId) : toEntityQuery(entityId)
+	if (!req) return query
+	if (type === 'ticket') return scopeAssignmentQuery(req, query)
+	return hasPermission(req.authUser?.role, 'reminders:view')
+		? scopeReminderQuery(req, query)
+		: { _id: null }
+}
 
 const getConversationTitle = (type, record) =>
 	type === 'ticket'
@@ -191,6 +236,17 @@ const buildConversationRecord = (type, record) => {
 			: [],
 		messages: normalizeConversationMessages(record?.messages),
 	}
+}
+
+const emitConversationChange = (type, record, conversation) => {
+	if (type === 'reminder') {
+		emitConversationUpdated(conversation, [
+			normalizeText(record?.createdByUserId),
+		])
+		return
+	}
+
+	emitConversationUpdatedToAll(conversation)
 }
 
 const buildConversationSummary = (type, record, authUserId = '') => {
@@ -1653,12 +1709,112 @@ export const getUsers = async (req, res) => {
 	}
 }
 
+export const getAssignableUsers = async (req, res) => {
+	try {
+		const users = await User.find().sort({ name: 1 })
+		res.status(200).json(users.map(toPublicUser))
+	} catch (error) {
+		console.error('Failed to fetch assignable users:', error)
+		sendError(res, 500, 'Failed to fetch assignable users')
+	}
+}
+
+const assignmentSynopsis = (values, fallback) => {
+	const synopsis = values.map(normalizeText).find(Boolean) || fallback
+	return synopsis.length > 180
+		? `${synopsis.slice(0, 177).trimEnd()}...`
+		: synopsis
+}
+
+export const getAssignmentBoard = async (req, res) => {
+	try {
+		const role = normalizeUserRole(req.authUser?.role)
+		const userId = normalizeText(req.authUser?.userId)
+		const seesAllOpenWork = hasPermission(role, 'assignments:delegate')
+		const assignmentFilter = seesAllOpenWork
+			? {}
+			: { assignedUserId: userId }
+
+		const [tickets, reports] = await Promise.all([
+			Ticket.find({
+				...assignmentFilter,
+				status: { $nin: ['completed', 'closed', 'cancelled'] },
+			})
+				.select(
+					'id service_category service_title status initialAssessment recommendedService notes scheduledDate',
+				)
+				.sort({ scheduledDate: 1, createdAt: -1 })
+				.lean(),
+			MonthlyReport.find({ ...assignmentFilter, status: 'draft' })
+				.select('id vesselName customerName reportDate notes status')
+				.sort({ reportDate: 1, createdAt: -1 })
+				.lean(),
+		])
+
+		res.status(200).json({
+			scope: seesAllOpenWork ? 'all' : 'assigned',
+			tickets: tickets.map((ticket) => ({
+				id: normalizeText(ticket.id || ticket._id),
+				kind: 'ticket',
+				category: normalizeText(ticket.service_category),
+				title: normalizeText(ticket.service_title) || 'Untitled Ticket',
+				synopsis: assignmentSynopsis(
+					[
+						ticket.initialAssessment,
+						ticket.recommendedService,
+						ticket.notes,
+					],
+					'No assignment details have been added.',
+				),
+			})),
+			monthlyReports: reports.map((report) => {
+				const vesselName = normalizeText(report.vesselName)
+				return {
+					id: normalizeText(report.id || report._id),
+					kind: 'monthlyReport',
+					category: 'monthlyReport',
+					title: vesselName
+						? `${vesselName} Monthly Report`
+						: 'Monthly Report',
+					synopsis: assignmentSynopsis(
+						[report.notes],
+						`Complete the monthly report${vesselName ? ` for ${vesselName}` : ''}.`,
+					),
+				}
+			}),
+		})
+	} catch (error) {
+		console.error('Failed to fetch assignment board:', error)
+		sendError(res, 500, 'Failed to fetch assignment board')
+	}
+}
+
 export const getUserAccess = (req, res) => {
 	const role = normalizeUserRole(req.authUser?.role)
 	res.status(200).json({
 		canRead: hasPermission(role, 'users:read'),
 		canCreate: hasPermission(role, 'users:create'),
 		canEdit: hasPermission(role, 'users:assignRole'),
+	})
+}
+
+export const getWorkspaceAccess = (req, res) => {
+	const role = normalizeUserRole(req.authUser?.role)
+	res.status(200).json({
+		canRegisterCustomers: hasPermission(role, 'customers:manage'),
+		canViewDirectory: hasPermission(role, 'directory:view'),
+		canUseSearch: hasPermission(role, 'directory:view'),
+		canManageCustomers: hasPermission(role, 'customers:manage'),
+		canManageVessels: hasPermission(role, 'vessels:manage'),
+		canViewReminders: hasPermission(role, 'reminders:view'),
+		canManageReminders: hasPermission(role, 'reminders:manage'),
+		canViewOpenTicketList: hasPermission(role, 'records:read'),
+		canCreateTickets:
+			hasPermission(role, 'tickets:manage') ||
+			hasPermission(role, 'tickets:create'),
+		canCreateReports:
+			hasPermission(role, 'reports:manage') ||
+			hasPermission(role, 'reports:create'),
 	})
 }
 
@@ -1706,15 +1862,23 @@ export const updateUser = async (req, res) => {
 export const getConversationList = async (req, res) => {
 	try {
 		const authUserId = normalizeText(req.authUser?.userId)
+		const canViewReminders = hasPermission(
+			req.authUser?.role,
+			'reminders:view',
+		)
 		const [tickets, reminders] = await Promise.all([
-			Ticket.find()
+			Ticket.find(scopeAssignmentQuery(req))
 				.select(
 					'id _id service_title service_category status scheduledDate messages',
 				)
 				.lean(),
-			Reminder.find()
-				.select('id _id title dueDate completed relatedTo messages')
-				.lean(),
+			canViewReminders
+				? Reminder.find(scopeReminderQuery(req))
+						.select(
+							'id _id title dueDate completed relatedTo messages',
+						)
+						.lean()
+				: Promise.resolve([]),
 		])
 
 		const conversations = [
@@ -1755,7 +1919,7 @@ export const getConversation = async (req, res) => {
 		}
 
 		const record = await model
-			.findOne(getConversationQuery(type, entityId))
+			.findOne(getConversationQuery(type, entityId, req))
 			.lean()
 		if (!record) {
 			return sendError(
@@ -1790,7 +1954,9 @@ export const markConversationRead = async (req, res) => {
 			)
 		}
 
-		const record = await model.findOne(getConversationQuery(type, entityId))
+		const record = await model.findOne(
+			getConversationQuery(type, entityId, req),
+		)
 		if (!record) {
 			return sendError(
 				res,
@@ -1835,7 +2001,9 @@ export const archiveConversation = async (req, res) => {
 			)
 		}
 
-		const record = await model.findOne(getConversationQuery(type, entityId))
+		const record = await model.findOne(
+			getConversationQuery(type, entityId, req),
+		)
 		if (!record) {
 			return sendError(
 				res,
@@ -1882,7 +2050,9 @@ export const deleteConversationMessage = async (req, res) => {
 			return sendError(res, 400, 'Message id is required')
 		}
 
-		const record = await model.findOne(getConversationQuery(type, entityId))
+		const record = await model.findOne(
+			getConversationQuery(type, entityId, req),
+		)
 		if (!record) {
 			return sendError(
 				res,
@@ -1912,7 +2082,7 @@ export const deleteConversationMessage = async (req, res) => {
 		await record.save()
 
 		const conversation = buildConversationRecord(type, record.toObject())
-		emitConversationUpdatedToAll(conversation)
+		emitConversationChange(type, record, conversation)
 
 		res.status(200).json({
 			deleted: true,
@@ -1938,7 +2108,9 @@ export const deleteConversation = async (req, res) => {
 			)
 		}
 
-		const record = await model.findOne(getConversationQuery(type, entityId))
+		const record = await model.findOne(
+			getConversationQuery(type, entityId, req),
+		)
 		if (!record) {
 			return sendError(
 				res,
@@ -1956,7 +2128,9 @@ export const deleteConversation = async (req, res) => {
 		record.markModified('archivedByUserIds')
 		await record.save()
 
-		emitConversationUpdatedToAll(
+		emitConversationChange(
+			type,
+			record,
 			buildConversationRecord(type, record.toObject()),
 		)
 
@@ -2000,7 +2174,7 @@ export const postConversationMessage = async (req, res) => {
 
 		const [senderUser, record] = await Promise.all([
 			User.findOne(toEntityQuery(authUserId)),
-			model.findOne(getConversationQuery(type, entityId)),
+			model.findOne(getConversationQuery(type, entityId, req)),
 		])
 
 		if (!senderUser) {
@@ -2042,7 +2216,7 @@ export const postConversationMessage = async (req, res) => {
 		record.markModified('archivedByUserIds')
 		await record.save()
 		const conversation = buildConversationRecord(type, record.toObject())
-		emitConversationUpdatedToAll(conversation)
+		emitConversationChange(type, record, conversation)
 
 		res.status(201).json({
 			message: normalizeConversationMessage(nextMessage),
@@ -2103,6 +2277,9 @@ export const getCustomerProfile = async (req, res) => {
 		if (!customerId) {
 			return sendError(res, 400, 'Customer ID is required')
 		}
+		if (!(await technicianCanViewEntity(req, 'customerId', customerId))) {
+			return sendError(res, 404, 'Customer not found')
+		}
 
 		const customer = await Customer.findById(customerId)
 
@@ -2123,6 +2300,9 @@ export const getBoatProfile = async (req, res) => {
 
 		if (!vesselId) {
 			return sendError(res, 400, 'Vessel ID is required')
+		}
+		if (!(await technicianCanViewEntity(req, 'vesselId', vesselId))) {
+			return sendError(res, 404, 'Vessel not found')
 		}
 
 		const vessel = await Vessel.findOne(toEntityQuery(vesselId))
@@ -2146,7 +2326,9 @@ export const getTicketProfile = async (req, res) => {
 			return sendError(res, 400, 'Ticket ID is required')
 		}
 
-		const ticket = await Ticket.findOne(toTicketQuery(ticketId))
+		const ticket = await Ticket.findOne(
+			scopeAssignmentQuery(req, toTicketQuery(ticketId)),
+		)
 
 		if (!ticket) {
 			return sendError(res, 404, 'Ticket not found')
@@ -2290,7 +2472,9 @@ export const getTicket = async (req, res) => {
 		} = req.query
 
 		// Build base query for Ticket fields
-		const query = {}
+		const query = isTechnicianRequest(req)
+			? { assignedUserId: normalizeText(req.authUser?.userId) }
+			: {}
 
 		// Regex text search for service title
 		if (service_title) {
@@ -2370,7 +2554,9 @@ export const getTicket = async (req, res) => {
 
 export const getReminder = async (req, res) => {
 	try {
-		const reminder = await Reminder.find().sort({ dueDate: 1 })
+		const reminder = await Reminder.find(scopeReminderQuery(req)).sort({
+			dueDate: 1,
+		})
 		res.status(200).json(reminder)
 	} catch (error) {
 		sendError(res, 500, 'Failed to fetch reminder')
@@ -2379,7 +2565,12 @@ export const getReminder = async (req, res) => {
 
 export const getAllCustomers = async (req, res) => {
 	try {
-		const customers = await Customer.find().sort({ createdAt: -1 })
+		const ids = await assignedEntityIds(req, 'customerId')
+		const customers = await Customer.find(
+			ids ? { _id: { $in: ids } } : {},
+		).sort({
+			createdAt: -1,
+		})
 		res.status(200).json(customers)
 	} catch (error) {
 		sendError(res, 500, 'Failed to fetch customers')
@@ -2388,7 +2579,12 @@ export const getAllCustomers = async (req, res) => {
 
 export const getAllBoats = async (req, res) => {
 	try {
-		const vessels = await Vessel.find().sort({ createdAt: -1 })
+		const ids = await assignedEntityIds(req, 'vesselId')
+		const vessels = await Vessel.find(
+			ids ? { _id: { $in: ids } } : {},
+		).sort({
+			createdAt: -1,
+		})
 		res.status(200).json(vessels)
 	} catch (error) {
 		sendError(res, 500, 'Failed to fetch vessels')
@@ -2397,7 +2593,7 @@ export const getAllBoats = async (req, res) => {
 
 export const getAllTickets = async (req, res) => {
 	try {
-		const tickets = await Ticket.find()
+		const tickets = await Ticket.find(scopeAssignmentQuery(req))
 			.select('-initialAssessmentPhotos -summaryOfWorkPerformedPhotos')
 			.sort({ createdAt: -1 })
 		res.status(200).json(tickets)
@@ -2408,7 +2604,9 @@ export const getAllTickets = async (req, res) => {
 
 export const getAllReminders = async (req, res) => {
 	try {
-		const reminders = await Reminder.find().sort({ dueDate: 1 })
+		const reminders = await Reminder.find(scopeReminderQuery(req)).sort({
+			dueDate: 1,
+		})
 		res.status(200).json(reminders)
 	} catch (error) {
 		sendError(res, 500, 'Failed to fetch reminders')
@@ -2437,18 +2635,29 @@ export const newBoat = async (req, res) => {
 
 export const newTicket = async (req, res) => {
 	try {
-		const ticket = await Ticket.create(buildRecord(req.body))
+		if (normalizeText(req.body.assignedUserId)) {
+			await assertCanDelegateAssignment(req)
+		}
+		const assignment = await resolveAssignment(req.body)
+		const ticket = await Ticket.create(
+			buildRecord({ ...req.body, ...assignment }),
+		)
 		res.status(201).json(ticket)
 	} catch (error) {
-		sendError(res, 500, 'Failed to create ticket')
+		sendError(
+			res,
+			error?.statusCode || 500,
+			error?.message || 'Failed to create ticket',
+		)
 	}
 }
 
 export const newReminder = async (req, res) => {
 	try {
-		const reminder = await Reminder.create(
-			buildRecord(req.body, { notes: '' }),
-		)
+		const reminder = await Reminder.create({
+			...buildRecord(req.body, { notes: '' }),
+			createdByUserId: normalizeText(req.authUser?.userId),
+		})
 		res.status(201).json(reminder)
 	} catch (error) {
 		sendError(res, 500, 'Failed to create reminder')
@@ -2498,12 +2707,38 @@ export const updateBoat = async (req, res) => {
 export const updateTicket = async (req, res) => {
 	try {
 		const ticketId = String(req.params.id || '')
-		const query = toTicketQuery(ticketId)
+		const query = scopeAssignmentQuery(req, toTicketQuery(ticketId))
 
-		const updated = await Ticket.findOneAndUpdate(query, req.body, {
-			new: true,
-			runValidators: true,
-		})
+		let assignment = {}
+		if (Object.hasOwn(req.body, 'assignedUserId')) {
+			const existing =
+				await Ticket.findOne(query).select('assignedUserId')
+			if (!existing) {
+				return sendError(res, 404, 'Ticket not found')
+			}
+			if (
+				normalizeText(req.body.assignedUserId) !==
+				normalizeText(existing.assignedUserId)
+			) {
+				await assertCanDelegateAssignment(req)
+			}
+			assignment = await resolveAssignment(req.body)
+		}
+		const {
+			assignedUserId: requestedAssignedUserId,
+			assignedUserName: requestedAssignedUserName,
+			...ticketUpdates
+		} = req.body
+		void requestedAssignedUserId
+		void requestedAssignedUserName
+		const updated = await Ticket.findOneAndUpdate(
+			query,
+			{ ...ticketUpdates, ...assignment },
+			{
+				new: true,
+				runValidators: true,
+			},
+		)
 
 		if (!updated) {
 			return sendError(res, 404, 'Ticket not found')
@@ -2511,7 +2746,11 @@ export const updateTicket = async (req, res) => {
 
 		res.status(200).json(updated)
 	} catch (error) {
-		sendError(res, 500, 'Failed to update ticket')
+		sendError(
+			res,
+			error?.statusCode || 500,
+			error?.message || 'Failed to update ticket',
+		)
 	}
 }
 
@@ -2632,7 +2871,9 @@ export const previewTicketProgress = async (req, res) => {
 			return sendError(res, 400, 'Ticket id is required')
 		}
 
-		const ticket = await Ticket.findOne(toTicketQuery(ticketId)).lean()
+		const ticket = await Ticket.findOne(
+			scopeAssignmentQuery(req, toTicketQuery(ticketId)),
+		).lean()
 		if (!ticket) {
 			return sendError(res, 404, 'Ticket not found')
 		}
@@ -2800,7 +3041,9 @@ export const previewVesselDossier = async (req, res) => {
 			)
 		}
 
-		const historyTickets = await Ticket.find({ vesselId })
+		const historyTickets = await Ticket.find(
+			scopeAssignmentQuery(req, { vesselId }),
+		)
 			.sort({ scheduledDate: -1 })
 			.lean()
 		const pdfBuffer = await createVesselDossierPdfBuffer({
@@ -2831,9 +3074,10 @@ export const previewVesselDossier = async (req, res) => {
 export const updateReminder = async (req, res) => {
 	try {
 		const reminderId = String(req.params.id || '').trim()
-		const query = toEntityQuery(reminderId)
+		const query = scopeReminderQuery(req, toEntityQuery(reminderId))
+		const { createdByUserId, ...updates } = req.body
 
-		const updated = await Reminder.findOneAndUpdate(query, req.body, {
+		const updated = await Reminder.findOneAndUpdate(query, updates, {
 			new: true,
 			runValidators: true,
 		})
@@ -2892,7 +3136,9 @@ export const deleteTicket = async (req, res) => {
 
 export const deleteReminder = async (req, res) => {
 	try {
-		const deleted = await Reminder.findOneAndDelete({ id: req.params.id })
+		const deleted = await Reminder.findOneAndDelete(
+			scopeReminderQuery(req, toEntityQuery(req.params.id)),
+		)
 
 		if (!deleted) {
 			return sendError(res, 404, 'reminder not found')
@@ -2911,10 +3157,47 @@ const monthlyReportWritableFields = [
 	'vesselId',
 	'customerName',
 	'vesselName',
+	'assignedUserId',
 	'reportDate',
 	'notes',
 	'diagnostics',
 ]
+
+const resolveAssignment = async (body = {}) => {
+	const assignedUserId = normalizeText(body.assignedUserId)
+	if (!assignedUserId) return { assignedUserId: '', assignedUserName: '' }
+
+	const user = await User.findOne(toEntityQuery(assignedUserId))
+	if (!user) {
+		const error = new Error('Assigned user was not found')
+		error.statusCode = 400
+		throw error
+	}
+
+	return {
+		assignedUserId: normalizeText(user.id || user._id),
+		assignedUserName: normalizeText(user.name),
+	}
+}
+
+const assertCanDelegateAssignment = async (req) => {
+	const authUserId = normalizeText(req.authUser?.userId)
+	const user = authUserId
+		? await User.findOne(toEntityQuery(authUserId)).select('role')
+		: null
+	if (!user) {
+		const error = new Error('Authenticated user was not found')
+		error.statusCode = 401
+		throw error
+	}
+	if (!hasPermission(user.role, 'assignments:delegate')) {
+		const error = new Error(
+			'You do not have permission to delegate assignments',
+		)
+		error.statusCode = 403
+		throw error
+	}
+}
 
 const isMonthlyReportCompletionRequested = (body = {}) =>
 	body?.markCompleted === true
@@ -3114,7 +3397,9 @@ const createMonthlyReportPdfBuffer = ({ report, customer, vessel }) =>
 
 export const getAllMonthlyReports = async (req, res) => {
 	try {
-		const reports = await MonthlyReport.find().sort({
+		const reports = await MonthlyReport.find(
+			scopeAssignmentQuery(req),
+		).sort({
 			reportDate: -1,
 			createdAt: -1,
 		})
@@ -3133,7 +3418,9 @@ export const getMonthlyReportProfile = async (req, res) => {
 		const query = mongoose.Types.ObjectId.isValid(reportId)
 			? { $or: [{ id: reportId }, { _id: reportId }] }
 			: { id: reportId }
-		const report = await MonthlyReport.findOne(query)
+		const report = await MonthlyReport.findOne(
+			scopeAssignmentQuery(req, query),
+		)
 		if (!report) {
 			return sendError(res, 404, 'Monthly report not found')
 		}
@@ -3146,7 +3433,11 @@ export const getMonthlyReportProfile = async (req, res) => {
 
 export const newMonthlyReport = async (req, res) => {
 	try {
-		const payload = pickMonthlyReportPayload(req.body)
+		if (normalizeText(req.body.assignedUserId)) {
+			await assertCanDelegateAssignment(req)
+		}
+		const assignment = await resolveAssignment(req.body)
+		const payload = { ...pickMonthlyReportPayload(req.body), ...assignment }
 		if (!payload.reportDate) {
 			return sendError(res, 400, 'Report date is required')
 		}
@@ -3171,7 +3462,8 @@ export const newMonthlyReport = async (req, res) => {
 		console.error(error)
 		sendError(
 			res,
-			error?.name === 'ValidationError' ? 400 : 500,
+			error?.statusCode ||
+				(error?.name === 'ValidationError' ? 400 : 500),
 			error?.message || 'Failed to create monthly report',
 		)
 	}
@@ -3180,9 +3472,10 @@ export const newMonthlyReport = async (req, res) => {
 export const updateMonthlyReport = async (req, res) => {
 	try {
 		const reportId = String(req.params.id || '').trim()
-		const query = mongoose.Types.ObjectId.isValid(reportId)
+		const baseQuery = mongoose.Types.ObjectId.isValid(reportId)
 			? { $or: [{ id: reportId }, { _id: reportId }] }
 			: { id: reportId }
+		const query = scopeAssignmentQuery(req, baseQuery)
 		const existing = await MonthlyReport.findOne(query)
 		if (!existing) {
 			return sendError(res, 404, 'Monthly report not found')
@@ -3195,12 +3488,22 @@ export const updateMonthlyReport = async (req, res) => {
 				'This monthly report is completed and locked. It cannot be reopened unless unlocked by an admin or service manager.',
 			)
 		}
+		if (
+			Object.hasOwn(req.body, 'assignedUserId') &&
+			normalizeText(req.body.assignedUserId) !==
+				normalizeText(existing.assignedUserId)
+		) {
+			await assertCanDelegateAssignment(req)
+		}
 
 		const markCompleted = isMonthlyReportCompletionRequested(req.body)
 		const authUserId = normalizeText(req.authUser?.userId)
 		const timestamp = new Date()
 		const updatePayload = {
 			...pickMonthlyReportPayload(req.body),
+			...(Object.hasOwn(req.body, 'assignedUserId')
+				? await resolveAssignment(req.body)
+				: {}),
 			status: markCompleted ? 'completed' : 'draft',
 			isLocked: markCompleted,
 			completedAt: markCompleted ? timestamp : null,
@@ -3225,7 +3528,8 @@ export const updateMonthlyReport = async (req, res) => {
 	} catch (error) {
 		sendError(
 			res,
-			error?.name === 'ValidationError' ? 400 : 500,
+			error?.statusCode ||
+				(error?.name === 'ValidationError' ? 400 : 500),
 			error?.message || 'Failed to update monthly report',
 		)
 	}
@@ -3286,7 +3590,9 @@ export const previewMonthlyReport = async (req, res) => {
 		const query = mongoose.Types.ObjectId.isValid(reportId)
 			? { $or: [{ id: reportId }, { _id: reportId }] }
 			: { id: reportId }
-		const report = await MonthlyReport.findOne(query).lean()
+		const report = await MonthlyReport.findOne(
+			scopeAssignmentQuery(req, query),
+		).lean()
 		if (!report) {
 			return sendError(res, 404, 'Monthly report not found')
 		}

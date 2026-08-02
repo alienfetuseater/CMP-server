@@ -42,7 +42,7 @@ export const requireAuth = (req, res, next) => {
 	}
 }
 
-export const requirePermission = (permission) => async (req, res, next) => {
+const requirePermissions = (permissions) => async (req, res, next) => {
 	try {
 		const userId = normalizeText(req.authUser?.userId)
 		const user = userId
@@ -54,7 +54,11 @@ export const requirePermission = (permission) => async (req, res, next) => {
 				.json({ error: 'Authenticated user not found' })
 		}
 
-		if (!hasPermission(user.role, permission)) {
+		if (
+			!permissions.some((permission) =>
+				hasPermission(user.role, permission),
+			)
+		) {
 			return res.status(403).json({ error: 'Insufficient permissions' })
 		}
 
@@ -64,3 +68,9 @@ export const requirePermission = (permission) => async (req, res, next) => {
 		return res.status(500).json({ error: 'Failed to verify permissions' })
 	}
 }
+
+export const requirePermission = (permission) =>
+	requirePermissions([permission])
+
+export const requireAnyPermission = (...permissions) =>
+	requirePermissions(permissions)

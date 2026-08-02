@@ -8,9 +8,11 @@ import {
 test('maps retired ticket categories to supported categories', () => {
 	assert.deepEqual(ticketCategoryMigrations, {
 		inspection: 'maintenance',
-		upgrade: 'modification',
+		upgrade: 'diagnosis',
+		modification: 'diagnosis',
 	})
 	assert.equal(migratedTicketCategory('inspection'), 'maintenance')
-	assert.equal(migratedTicketCategory('UPGRADE'), 'modification')
+	assert.equal(migratedTicketCategory('UPGRADE'), 'diagnosis')
+	assert.equal(migratedTicketCategory('modification'), 'diagnosis')
 	assert.equal(migratedTicketCategory('repair'), 'repair')
 })

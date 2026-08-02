@@ -57,7 +57,8 @@ const normalizeText = (value) => {
 const normalizeServiceCategory = (value) => {
 	const category = normalizeText(value).toLowerCase()
 	if (category === 'inspection') return 'maintenance'
-	if (category === 'upgrade') return 'modification'
+	if (category === 'upgrade' || category === 'modification')
+		return 'diagnosis'
 	return category
 }
 
@@ -685,12 +686,14 @@ const getDossierEntryType = (ticket) => {
 		return 'MAINTENANCE'
 	}
 	if (
+		category.includes('diagnosis') ||
 		category.includes('modification') ||
 		category.includes('upgrade') ||
+		title.includes('diagnosis') ||
 		title.includes('modification') ||
 		title.includes('upgrade')
 	) {
-		return 'MODIFICATION'
+		return 'DIAGNOSIS'
 	}
 
 	return 'SERVICE'
@@ -706,7 +709,7 @@ const getDossierEntryTheme = (entryType) => {
 	if (entryType === 'MAINTENANCE') {
 		return { accent: '#2563eb', soft: '#eff6ff', text: '#1e40af' }
 	}
-	if (entryType === 'MODIFICATION') {
+	if (entryType === 'DIAGNOSIS') {
 		return { accent: '#0ea5e9', soft: '#ecfeff', text: '#0c4a6e' }
 	}
 
@@ -1780,7 +1783,7 @@ export const getAssignmentBoard = async (req, res) => {
 			? {}
 			: { assignedUserId: userId }
 
-		const [tickets, reports] = await Promise.all([
+		const [tickets, reports, reminders] = await Promise.all([
 			Ticket.find({
 				...assignmentFilter,
 				status: { $nin: ['completed', 'closed', 'cancelled'] },
@@ -1793,6 +1796,10 @@ export const getAssignmentBoard = async (req, res) => {
 			MonthlyReport.find({ ...assignmentFilter, status: 'draft' })
 				.select('id vesselName customerName reportDate notes status')
 				.sort({ reportDate: 1, createdAt: -1 })
+				.lean(),
+			Reminder.find(scopeReminderQuery(req, { completed: false }))
+				.select('id title notes dueDate relatedTo')
+				.sort({ dueDate: 1, createdAt: -1 })
 				.lean(),
 		])
 
@@ -1827,6 +1834,18 @@ export const getAssignmentBoard = async (req, res) => {
 					),
 				}
 			}),
+			reminders: reminders.map((reminder) => ({
+				id: normalizeText(reminder.id || reminder._id),
+				kind: 'reminder',
+				category: 'reminder',
+				title: normalizeText(reminder.title) || 'Untitled Reminder',
+				synopsis: assignmentSynopsis(
+					[reminder.notes],
+					reminder.dueDate
+						? `Due ${formatPdfDate(reminder.dueDate)}.`
+						: 'No reminder details have been added.',
+				),
+			})),
 		})
 	} catch (error) {
 		console.error('Failed to fetch assignment board:', error)
@@ -2422,7 +2441,7 @@ export const getTicketProfile = async (req, res) => {
  *         Partial text search on the job title.
  *         Example: ?service_title=engine
  *
- *    - service_category    (enum: repair | maintenance | modification)
+ *    - service_category    (enum: repair | maintenance | diagnosis)
  *         Exact match on the job category.
  *         Example: ?service_category=repair
  *

@@ -314,7 +314,7 @@ const ticketSchema = new Schema(
 		},
 		service_category: {
 			type: String,
-			enum: ['repair', 'maintenance', 'modification'],
+			enum: ['repair', 'maintenance', 'diagnosis'],
 			required: true,
 		},
 		service_title: { type: String, required: true },

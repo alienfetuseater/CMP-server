@@ -8,7 +8,8 @@ const __dirname = path.dirname(__filename)
 
 export const ticketCategoryMigrations = Object.freeze({
 	inspection: 'maintenance',
-	upgrade: 'modification',
+	upgrade: 'diagnosis',
+	modification: 'diagnosis',
 })
 
 export function migratedTicketCategory(category) {
@@ -43,8 +44,11 @@ export async function runTicketCategoryMigration({ dryRun = false } = {}) {
 			0,
 		)
 
+		const countSummary = Object.entries(counts)
+			.map(([category, count]) => `${count} ${category}`)
+			.join(', ')
 		console.log(
-			`Found ${candidateCount} ticket(s) to migrate (${counts.inspection} inspection, ${counts.upgrade} upgrade).`,
+			`Found ${candidateCount} ticket(s) to migrate (${countSummary}).`,
 		)
 		if (dryRun) {
 			console.log('Dry run complete. No tickets were changed.')

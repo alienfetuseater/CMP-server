@@ -145,7 +145,7 @@ Authorization: Bearer {{authToken}}
 {
   "customerId": "66c0a1f9e3b4a9c2d4f33333",
   "vesselId": "66c0a1f9e3b4a9c2d4f44444",
-  "service_category": "modification",
+  "service_category": "diagnosis",
   "service_title": "Install Garmin GPS & Radar",
   "status": "on hold",
   "priority": "low",

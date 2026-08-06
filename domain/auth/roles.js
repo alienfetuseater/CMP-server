@@ -58,6 +58,8 @@ export const ROLE_PERMISSIONS = {
 	coordinator: [
 		'calendar:view',
 		'records:read',
+		'reports:create',
+		'reports:update',
 		'directory:view',
 		'customers:manage',
 		'vessels:manage',

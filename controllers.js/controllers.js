@@ -1879,6 +1879,10 @@ export const getWorkspaceAccess = (req, res) => {
 		canCreateReports:
 			hasPermission(role, 'reports:manage') ||
 			hasPermission(role, 'reports:create'),
+		canUpdateReports:
+			hasPermission(role, 'reports:manage') ||
+			hasPermission(role, 'reports:update'),
+		canUnlockReports: hasPermission(role, 'reports:manage'),
 	})
 }
 
@@ -3235,6 +3239,15 @@ const monthlyReportWritableFields = [
 	'diagnostics',
 ]
 
+const monthlyReportCreateFields = [
+	'customerId',
+	'vesselId',
+	'customerName',
+	'vesselName',
+	'assignedUserId',
+	'reportDate',
+]
+
 const resolveAssignment = async (body = {}) => {
 	const assignedUserId = normalizeText(body.assignedUserId)
 	if (!assignedUserId) return { assignedUserId: '', assignedUserName: '' }
@@ -3282,6 +3295,13 @@ const canUnlockMonthlyReport = (role) => {
 const pickMonthlyReportPayload = (body = {}) =>
 	Object.fromEntries(
 		monthlyReportWritableFields
+			.filter((field) => Object.hasOwn(body, field))
+			.map((field) => [field, body[field]]),
+	)
+
+const pickMonthlyReportCreatePayload = (body = {}) =>
+	Object.fromEntries(
+		monthlyReportCreateFields
 			.filter((field) => Object.hasOwn(body, field))
 			.map((field) => [field, body[field]]),
 	)
@@ -3509,22 +3529,22 @@ export const newMonthlyReport = async (req, res) => {
 			await assertCanDelegateAssignment(req)
 		}
 		const assignment = await resolveAssignment(req.body)
-		const payload = { ...pickMonthlyReportPayload(req.body), ...assignment }
+		const payload = {
+			...pickMonthlyReportCreatePayload(req.body),
+			...assignment,
+		}
 		if (!payload.reportDate) {
 			return sendError(res, 400, 'Report date is required')
 		}
 
-		const markCompleted = isMonthlyReportCompletionRequested(req.body)
-		const authUserId = normalizeText(req.authUser?.userId)
-		const timestamp = new Date()
 		const report = await MonthlyReport.create(
 			buildRecord({
 				...payload,
-				status: markCompleted ? 'completed' : 'draft',
-				isLocked: markCompleted,
-				completedAt: markCompleted ? timestamp : null,
-				lockedAt: markCompleted ? timestamp : null,
-				lockedByUserId: markCompleted ? authUserId : '',
+				status: 'draft',
+				isLocked: false,
+				completedAt: null,
+				lockedAt: null,
+				lockedByUserId: '',
 				unlockedAt: null,
 				unlockedByUserId: '',
 			}),

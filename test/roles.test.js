@@ -37,6 +37,15 @@ test('only administrators, service managers, and coordinators can delegate assig
 	assert.equal(hasPermission('viewer', 'assignments:delegate'), false)
 })
 
+test('staff responsible for monthly reports can update diagnostics', () => {
+	assert.equal(hasPermission('admin', 'reports:manage'), true)
+	assert.equal(hasPermission('serviceManager', 'reports:manage'), true)
+	assert.equal(hasPermission('coordinator', 'reports:create'), true)
+	assert.equal(hasPermission('coordinator', 'reports:update'), true)
+	assert.equal(hasPermission('technician', 'reports:update'), true)
+	assert.equal(hasPermission('viewer', 'reports:update'), false)
+})
+
 test('assignment board access excludes viewers', () => {
 	assert.equal(hasPermission('admin', 'assignments:view'), true)
 	assert.equal(hasPermission('serviceManager', 'assignments:view'), true)

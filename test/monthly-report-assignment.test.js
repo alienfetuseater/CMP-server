@@ -47,6 +47,9 @@ test('creates an assigned monthly report without update-only state', async (cont
 			body: {
 				reportDate: '2026-08-02',
 				assignedUserId: 'tech-1',
+				diagnostics: { engine_oil: { value: 'good' } },
+				notes: 'Should only be accepted after creation',
+				markCompleted: true,
 			},
 		},
 		response,
@@ -55,6 +58,10 @@ test('creates an assigned monthly report without update-only state', async (cont
 	assert.equal(response.statusCode, 201)
 	assert.equal(createdRecord.assignedUserId, 'tech-1')
 	assert.equal(createdRecord.assignedUserName, 'Taylor Tech')
+	assert.equal(createdRecord.diagnostics, undefined)
+	assert.equal(createdRecord.notes, undefined)
+	assert.equal(createdRecord.status, 'draft')
+	assert.equal(createdRecord.isLocked, false)
 })
 
 test('prevents technicians from reassigning their monthly reports', async (context) => {
@@ -97,4 +104,41 @@ test('prevents technicians from reassigning their monthly reports', async (conte
 		'You do not have permission to delegate assignments',
 	)
 	assert.equal(updateCalled, false)
+})
+
+test('allows administrators to update diagnostics on unassigned reports', async (context) => {
+	const originalReportFindOne = MonthlyReport.findOne
+	const originalReportUpdate = MonthlyReport.findOneAndUpdate
+	let updateQuery
+	let updatePayload
+
+	MonthlyReport.findOne = async (query) => {
+		updateQuery = query
+		return { id: 'report-1', assignedUserId: '', isLocked: false }
+	}
+	MonthlyReport.findOneAndUpdate = async (query, payload) => {
+		updateQuery = query
+		updatePayload = payload
+		return { id: 'report-1', ...payload }
+	}
+	context.after(() => {
+		MonthlyReport.findOne = originalReportFindOne
+		MonthlyReport.findOneAndUpdate = originalReportUpdate
+	})
+
+	const response = createResponse()
+	await updateMonthlyReport(
+		{
+			authUser: { userId: 'admin-1', role: 'admin' },
+			params: { id: 'report-1' },
+			body: { diagnostics: { engine_oil: { value: 'good' } } },
+		},
+		response,
+	)
+
+	assert.equal(response.statusCode, 200)
+	assert.equal(Object.hasOwn(updateQuery, '$and'), false)
+	assert.deepEqual(updatePayload.diagnostics, {
+		engine_oil: { value: 'good' },
+	})
 })
